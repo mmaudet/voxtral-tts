@@ -208,34 +208,6 @@ chmod +x install_voxtral.sh download_model.sh start_services.sh test_endpoints.s
 
 If `start_services.sh` reports `vLLM did NOT become healthy`, the actual vllm process may still be booting (cold-start CUDAGraph capture is slow). Re-run the script — it'll skip starting if a healthy server is already running.
 
-## Test report (from this repo's deployment, 2026-04-28)
-
-7 languages on vLLM, 2 on the LiteLLM proxy, 0 failures:
-
-| Endpoint | Voice | Lang | HTTP | WAV size | Mac→pod→Mac latency |
-|---|---|---|---|---|---|
-| vLLM | `neutral_female` | EN | 200 | 376 KB | — |
-| vLLM | `fr_male` | FR | 200 | 282 KB | 3.3 s |
-| vLLM | `de_female` | DE | 200 | 169 KB | — |
-| vLLM | `es_male` | ES | 200 | 184 KB | — |
-| vLLM | `it_female` | IT | 200 | 184 KB | — |
-| vLLM | `nl_male` | NL | 200 | 203 KB | — |
-| vLLM | `pt_female` | PT | 200 | 181 KB | — |
-| LiteLLM | `fr_female` | FR | 200 | 214 KB | 2.6 s |
-| LiteLLM | `neutral_male` | EN | 200 | 128 KB | — |
-
-All outputs: PCM 16-bit mono 24 kHz WAV. The first call after a cold boot is roughly 10× slower than steady-state.
-
-## Cost
-
-| Phase | Duration | Cost |
-|---|---|---|
-| First-time deploy (install + download + boot + test) | ≈ 1 h 30 min | ≈ $0.41 |
-| Steady state, pod running idle | per hour | $0.27 |
-| Pod stopped, volume retained | per day | ≈ $0.007 (50 GB × $0.07/mo) |
-
-Pricing is whatever Secure Cloud charges for an A5000 at the time you run it. Always check `nvidia-smi` after a stop/start cycle: stopped pods don't burn GPU dollars but mistakenly leaving one `RUNNING` overnight does.
-
 ## Authentication
 
 LiteLLM uses a [custom_auth](https://docs.litellm.ai/docs/proxy/virtual_keys#custom-auth) module ([`auth.py`](auth.py)) so we can hand out **multiple pre-shared keys without running a database**. Every env var named `VOXTRAL_KEY_<NAME>` becomes a valid Bearer token; the `<NAME>` suffix (lower-cased) becomes the LiteLLM `user_id` for logging.
