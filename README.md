@@ -1,4 +1,4 @@
-# voxtral-tts-runpod
+# voxtral-tts
 
 Self-hostable recipe for **Mistral AI's Voxtral-4B-TTS-2603** on a single RunPod GPU, served by **vLLM-Omni** with an OpenAI-compatible `/v1/audio/speech` endpoint and a **LiteLLM** proxy in front of it.
 
@@ -45,8 +45,8 @@ Both ports are reachable through RunPod's public HTTPS proxy. The vLLM port is u
 You'll need a [RunPod account](https://www.runpod.io/) with billing set up and a [HuggingFace token](https://huggingface.co/settings/tokens). The model itself is not gated.
 
 ```bash
-git clone git@github.com:mmaudet/voxtral-tts-runpod.git
-cd voxtral-tts-runpod
+git clone git@github.com:mmaudet/voxtral-tts.git
+cd voxtral-tts
 
 # 1. Configure secrets
 cp .voxtral.env.example .voxtral.env
