@@ -134,7 +134,8 @@ Response formats: `wav` (default), `pcm`, `flac`, `mp3`, `aac`, `opus`. Output i
 ├── .gitignore
 ├── runpod-pod-info.example.json    schema for the per-pod state file (gitignored real one)
 ├── versions.lock.json              the *exact* package versions known to work
-├── litellm_config.yaml             proxy config: alias `voxtral-tts`, master_key sk-voxtral-local
+├── litellm_config.yaml             proxy config: alias `voxtral-tts`, custom_auth → auth.py
+├── auth.py                         custom_auth module: any `VOXTRAL_KEY_<NAME>` env var becomes a valid Bearer token (no DB)
 ├── install_voxtral.sh              one-shot install on the pod (idempotent)
 ├── download_model.sh               pull the model to /workspace/models (idempotent)
 ├── start_services.sh               launch vLLM + LiteLLM on the pod (idempotent)
@@ -295,7 +296,8 @@ Apt packages: `python3.10-venv python3.10-dev build-essential ffmpeg libsndfile1
 | `flashinfer-cubin version (X.X) does not match flashinfer version (Y.Y)` | Mismatch between `flashinfer-python` and `flashinfer-cubin` | Pin both to the same version |
 | `InductorError: ... Python.h: No such file or directory` | Triton's gcc-based JIT can't find Python headers | `apt install python3.10-dev build-essential` |
 | `vLLM did NOT become healthy` after 15 min | Stage-1 (audio decoder) init genuinely failed | `tail /workspace/logs/vllm.log` and grep for the actual error; restart with `start_services.sh` |
-| LiteLLM returns 401 | Wrong/missing master_key | Header must be `Authorization: Bearer sk-voxtral-local` |
+| LiteLLM returns 401 `invalid api key` | Bearer token isn't in the `VOXTRAL_KEY_*` allowlist | Use `$VOXTRAL_KEY_OWNER` (or `$VOXTRAL_KEY_COLLEAGUE`); the master key alone won't work on `/v1/audio/speech` by design |
+| LiteLLM returns 401 `missing api key` | No `Authorization: Bearer …` header at all | Add the header |
 | Audio file is 0 bytes / WAV without RIFF header | Bad voice name | Pick from the 20 listed above |
 | `HTTP 403, error code: 1010` from the public proxy URL | Cloudflare in front of `*.proxy.runpod.net` rejects `Python-urllib/*` UA | Send any non-default `User-Agent` header (curl works out of the box; `generate-murmure-samples.py` already sets one) |
 
