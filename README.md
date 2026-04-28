@@ -257,6 +257,7 @@ See [`versions.lock.json`](versions.lock.json) for the full lockfile. Key pins:
 | `transformers` | 4.57.6 | Compatible with vllm 0.18 |
 | `flashinfer-python`/`flashinfer-cubin` | 0.6.6 / 0.6.6 | Both must match — newer cubin (0.6.8) refuses to load against 0.6.6 python |
 | `mistral_common` | ≥ 1.10 | Required by vllm-omni for the Voxtral tokenizer parser |
+| `huggingface_hub[cli]` | < 1.0 | `transformers 4.57` hard-requires `<1.0`; the 1.x release ships a different CLI shape |
 | `litellm[proxy]` | 1.83.x | Any recent should work; 1.83.14 verified |
 
 Apt packages: `python3.10-venv python3.10-dev build-essential ffmpeg libsndfile1`. The `-dev` headers are needed by Triton's first-run gcc compile of `cuda_utils.c`.
@@ -266,6 +267,7 @@ Apt packages: `python3.10-venv python3.10-dev build-essential ffmpeg libsndfile1
 | Symptom | Root cause | Fix |
 |---|---|---|
 | `huggingface-cli: deprecated, use hf` | huggingface_hub 1.x renamed the binary | `download_model.sh` already uses `hf download` |
+| `ImportError: huggingface-hub>=0.34.0,<1.0 is required ...` | huggingface_hub 1.x pulled in by `-U`, but transformers 4.57 wants <1.0 | Pin `huggingface_hub[cli]<1.0` (already done in `install_voxtral.sh`) |
 | `ModuleNotFoundError: No module named 'vllm.inputs.data'` | vllm 0.20 with vllm-omni 0.18 | Pin `vllm==0.18.1` (already in `install_voxtral.sh`) |
 | `ImportError: undefined symbol _ZN3c1013MessageLogger...` | torch 2.11 with vllm 0.18 (ABI mismatch) | Pin `torch==2.10.0` (already in `install_voxtral.sh`) |
 | `vllm: error: unrecognized arguments: --omni` | A later `pip install vllm` overwrote the vllm-omni entrypoint | `install_voxtral.sh` rewrites `<venv>/bin/vllm` after install — re-run it, or do it by hand |

@@ -65,7 +65,11 @@ python -c "import vllm_omni; from vllm.inputs.data import TokensPrompt; print('v
 
 echo "=== [7/8] audio deps + HF CLI ==="
 uv pip install librosa soundfile pydub
-uv pip install -U "huggingface_hub[cli]"
+# transformers 4.57 hard-requires huggingface_hub<1.0; the 1.x line ships a
+# new CLI shape and a different versioning policy, and trips
+# `ImportError: huggingface-hub>=0.34.0,<1.0 is required ...` at vllm import.
+# Pin under 1.0; `hf` CLI is available from 0.27+, no functionality lost.
+uv pip install "huggingface_hub[cli]<1.0"
 
 echo "=== [8/8] LiteLLM (with proxy extras) ==="
 uv pip install "litellm[proxy]"
