@@ -6,6 +6,10 @@
 # Per-pod runtime state (regenerated on every deploy)
 runpod-pod-info.json
 
+# Personal/local notes — anything ending in `.local.<ext>` stays out of git
+# (e.g. keys.local.md, scratch.local.txt, debug.local.json)
+*.local.*
+
 # Generated audio (voices are CC BY-NC, do not redistribute)
 test_audio/
 samples/

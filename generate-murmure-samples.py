@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """
 Generate the "Murmure" pitch as TTS samples in 6 European languages × 2
-voices, hitting the vLLM endpoint of the running voxtral-tts pod through
-RunPod's HTTPS proxy.
+voices, via the LiteLLM proxy of the running voxtral-tts pod.
 
 Pod id is read from runpod-pod-info.json (see runpod-pod-info.example.json).
+LiteLLM owner key (`VOXTRAL_KEY_OWNER`) is read from the env, with a fallback
+to local `.voxtral.env` if the var isn't exported.
 
 Output: 12 WAV files in samples/murmure/.
 
 Usage:
-  ./generate-murmure-samples.py              # uses runpod-pod-info.json
-  ./generate-murmure-samples.py <pod-id>     # explicit
+  ./generate-murmure-samples.py              # uses runpod-pod-info.json + .voxtral.env
+  ./generate-murmure-samples.py <pod-id>     # explicit pod id, env still read for the key
 """
 
 import json
@@ -81,7 +82,9 @@ VOICES = {
 
 LANGS = ["fr", "en", "de", "it", "es", "nl"]
 GENDERS = ["female", "male"]
-MODEL = "mistralai/Voxtral-4B-TTS-2603"
+# `voxtral-tts` is the LiteLLM model alias defined in litellm_config.yaml.
+# (vLLM-direct on :8000 expects `mistralai/Voxtral-4B-TTS-2603`.)
+MODEL = "voxtral-tts"
 OUT_DIR = "samples/murmure"
 
 
@@ -97,12 +100,34 @@ def get_pod_id() -> str:
         sys.exit("✗ runpod-pod-info.json has no .voxtral-main.podId")
 
 
-def synth(url: str, payload: dict, out_path: str):
+def get_owner_key() -> str:
+    """Return $VOXTRAL_KEY_OWNER from env, or parse it from .voxtral.env."""
+    k = os.environ.get("VOXTRAL_KEY_OWNER", "").strip()
+    if k:
+        return k
+    try:
+        with open(".voxtral.env") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("export VOXTRAL_KEY_OWNER="):
+                    val = line.split("=", 1)[1].strip().strip("'").strip('"')
+                    if val:
+                        return val
+    except FileNotFoundError:
+        pass
+    sys.exit(
+        "✗ VOXTRAL_KEY_OWNER not set — either `source .voxtral.env` first, "
+        "or add `export VOXTRAL_KEY_OWNER=sk-voxtral-owner-…` to it"
+    )
+
+
+def synth(url: str, payload: dict, out_path: str, api_key: str):
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
         headers={
             "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
             # RunPod's HTTPS proxy is fronted by Cloudflare, which rejects the
             # default `Python-urllib/3.x` UA with HTTP 403 (error 1010).
             "User-Agent": "voxtral-tts-runpod/1.0",
@@ -120,9 +145,11 @@ def synth(url: str, payload: dict, out_path: str):
 def main() -> int:
     os.makedirs(OUT_DIR, exist_ok=True)
     pod_id = get_pod_id()
-    url = f"https://{pod_id}-8000.proxy.runpod.net/v1/audio/speech"
+    key = get_owner_key()
+    url = f"https://{pod_id}-4000.proxy.runpod.net/v1/audio/speech"
 
     print(f"target : {url}")
+    print(f"auth   : Bearer {key[:24]}…  (owner key)")
     print(f"output : {OUT_DIR}/")
     print()
 
@@ -142,7 +169,7 @@ def main() -> int:
             }
             label = f"{lang} {gender:6} ({voice:>16})"
             try:
-                dt, size = synth(url, payload, out)
+                dt, size = synth(url, payload, out, key)
                 total_t += dt
                 total_b += size
                 ok = "OK" if size > 1000 else "FAIL"
