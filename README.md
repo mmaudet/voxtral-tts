@@ -84,7 +84,7 @@ curl -s https://<pod-id>-8000.proxy.runpod.net/v1/audio/speech \
 # LiteLLM proxy (auth required)
 curl -s https://<pod-id>-4000.proxy.runpod.net/v1/audio/speech \
   -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer sk-voxtral-local' \
+  -H "Authorization: Bearer $VOXTRAL_KEY_OWNER" \
   -d '{
     "model": "voxtral-tts",
     "input": "Test via LiteLLM.",
@@ -235,12 +235,33 @@ All outputs: PCM 16-bit mono 24 kHz WAV. The first call after a cold boot is rou
 
 Pricing is whatever Secure Cloud charges for an A5000 at the time you run it. Always check `nvidia-smi` after a stop/start cycle: stopped pods don't burn GPU dollars but mistakenly leaving one `RUNNING` overnight does.
 
+## Authentication
+
+LiteLLM uses a [custom_auth](https://docs.litellm.ai/docs/proxy/virtual_keys#custom-auth) module ([`auth.py`](auth.py)) so we can hand out **multiple pre-shared keys without running a database**. Every env var named `VOXTRAL_KEY_<NAME>` becomes a valid Bearer token; the `<NAME>` suffix (lower-cased) becomes the LiteLLM `user_id` for logging.
+
+The repo's defaults define two:
+
+| Env var | Intended user | Where it's used |
+|---|---|---|
+| `VOXTRAL_KEY_OWNER` | the operator (you) | private code, scripts, dashboards |
+| `VOXTRAL_KEY_COLLEAGUE` | someone you trust to test the endpoint | hand off via Bitwarden / 1Password |
+
+To add a third (or fifth), just add another `VOXTRAL_KEY_<NAME>=sk-voxtral-...` to `.voxtral.env`, run `./restart-pod.sh`, and the new key is live. To revoke one, delete the line and `restart-pod.sh` again — the change reaches the pod via SSH stdin (the keys never touch git, never appear in `ps`).
+
+The **master key** (`VOXTRAL_LITELLM_MASTER_KEY`) is admin-only with `custom_auth` on: it grants access to LiteLLM's `/key/*` and `/metrics` routes but **not** to `/v1/audio/speech`. So leaking the master key doesn't let anyone synthesize audio — they'd only see proxy metadata. Still, treat it as a secret.
+
+Generate fresh keys with:
+
+```bash
+python3 -c 'import secrets; print("sk-voxtral-owner-" + secrets.token_urlsafe(24))'
+```
+
 ## Operating notes
 
 - **`--omni` is mandatory** on `vllm serve`. Without it, `/v1/audio/speech` returns 404 — vanilla vLLM doesn't expose that route.
 - **Install order matters** between vllm and vllm-omni. The current `install_voxtral.sh` resolves them in a single `uv pip install` to avoid the entrypoint and ABI traps documented in [Troubleshooting](#troubleshooting).
 - **Cold start is dominated by stage-1 init** (audio decoder warmup + CUDA graph capture). The default `start_services.sh` polls `/health` for 15 minutes; that's intentional.
-- **The LiteLLM master_key is `sk-voxtral-local`**, hard-coded for sandbox use. Rotate before you point anything you care about at this. Easy fix: edit `litellm_config.yaml` and restart the proxy.
+- **LiteLLM auth** is now backed by a tiny `custom_auth` module ([`auth.py`](auth.py)) that reads `VOXTRAL_KEY_*` env vars on the pod. The local `.voxtral.env` is the source of truth; `restart-pod.sh` syncs the keys onto the pod via SSH stdin so they never appear in argv. See the [Authentication](#authentication) section above.
 - **The vLLM 8000 port is anonymous on the public proxy.** If that's not OK for you, either firewall it via RunPod's port settings, or front everything through LiteLLM 4000 only.
 - **Secrets**: `.voxtral.env` is git-ignored and chmod 600. `HF_TOKEN` is also written into the pod's container env at creation time; it is NOT visible to interactive SSH shells (RunPod only exposes pod env on PID 1, so the install scripts source it from `/proc/1/environ`).
 

@@ -89,12 +89,25 @@ for i in $(seq 1 30); do
   sleep 3
 done
 
-# ---------------- 5. push latest local scripts ----------------
-echo "→ syncing start_services.sh + litellm_config.yaml to pod..."
+# ---------------- 5. push latest local scripts + LiteLLM secrets ----------------
+echo "→ syncing start_services.sh + litellm_config.yaml + auth.py to pod..."
 scp -P "$SSHP" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-  start_services.sh litellm_config.yaml \
+  start_services.sh litellm_config.yaml auth.py \
   "root@$IP:/workspace/" >/dev/null
 ssh "${SSH_OPTS[@]}" "root@$IP" 'chmod +x /workspace/start_services.sh'
+
+# Push LiteLLM virtual keys via stdin (never in argv). Keys are read from the
+# local .voxtral.env which is sourced at the top of this script.
+if [ -n "${VOXTRAL_KEY_OWNER:-}" ] && [ -n "${VOXTRAL_LITELLM_MASTER_KEY:-}" ]; then
+  echo "→ syncing /workspace/.litellm.env (custom_auth keys)..."
+  ssh "${SSH_OPTS[@]}" "root@$IP" 'umask 077; cat > /workspace/.litellm.env && chmod 600 /workspace/.litellm.env' <<EOF
+export VOXTRAL_KEY_OWNER=$VOXTRAL_KEY_OWNER
+export VOXTRAL_KEY_COLLEAGUE=${VOXTRAL_KEY_COLLEAGUE:-}
+export VOXTRAL_LITELLM_MASTER_KEY=$VOXTRAL_LITELLM_MASTER_KEY
+EOF
+else
+  echo "WARN: VOXTRAL_KEY_OWNER/MASTER not set in .voxtral.env — LiteLLM will start with no virtual keys"
+fi
 
 # ---------------- 6. launch services (foreground, blocks ~4-5 min) ----------------
 echo "→ launching services on the pod (this will block ~4-5 min on first cold boot)..."

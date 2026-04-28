@@ -51,6 +51,17 @@ if curl -sf http://localhost:4000/health/liveliness >/dev/null 2>&1 \
   echo "LiteLLM already up on :4000 — skipping start"
 else
   echo "Starting LiteLLM..."
+  # Source the per-pod LiteLLM secrets file (master key + virtual keys).
+  # Pushed onto the pod by restart-pod.sh from the local .voxtral.env.
+  # `auth.py` lives next to litellm_config.yaml in /workspace, so PYTHONPATH
+  # must include /workspace for `custom_auth: auth.user_api_key_auth` to resolve.
+  if [ -r /workspace/.litellm.env ]; then
+    # shellcheck disable=SC1091
+    source /workspace/.litellm.env
+  else
+    echo "WARN: /workspace/.litellm.env missing — LiteLLM will start with no virtual keys"
+  fi
+  export PYTHONPATH="/workspace:${PYTHONPATH:-}"
   nohup litellm --config /workspace/litellm_config.yaml \
     --port 4000 --host 0.0.0.0 \
     > /workspace/logs/litellm.log 2>&1 &

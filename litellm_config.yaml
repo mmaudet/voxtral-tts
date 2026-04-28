@@ -6,7 +6,11 @@ model_list:
       api_key: none
 
 general_settings:
-  master_key: sk-voxtral-local
+  # The master key bypasses custom_auth entirely — keep it private. Read from
+  # environment so it never lives in the YAML or a git-tracked file.
+  master_key: os.environ/VOXTRAL_LITELLM_MASTER_KEY
+  # Per-user pre-shared keys (no database). See auth.py for the allowlist.
+  custom_auth: auth.user_api_key_auth
 
 litellm_settings:
   drop_params: false

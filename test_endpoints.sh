@@ -5,6 +5,13 @@
 set -uo pipefail
 mkdir -p /workspace/test_audio
 
+# Source LiteLLM env for VOXTRAL_KEY_OWNER (used by the proxy tests below).
+# Skipped silently if absent — vLLM-direct tests still work without it.
+if [ -r /workspace/.litellm.env ]; then
+  # shellcheck disable=SC1091
+  source /workspace/.litellm.env
+fi
+
 build_payload() {
   local model="$1" voice="$2" input="$3"
   python3 -c 'import json,sys; print(json.dumps({"model":sys.argv[1],"input":sys.argv[2],"voice":sys.argv[3],"response_format":"wav"}))' "$model" "$input" "$voice"
@@ -28,7 +35,7 @@ test_litellm() {
   local payload; payload=$(build_payload "voxtral-tts" "$voice" "$input")
   local code; code=$(curl -s -o "$out" -w "%{http_code}" \
     -H "Content-Type: application/json" \
-    -H "Authorization: Bearer sk-voxtral-local" \
+    -H "Authorization: Bearer ${VOXTRAL_KEY_OWNER:?VOXTRAL_KEY_OWNER not set — source /workspace/.litellm.env first}" \
     -d "$payload" \
     "http://localhost:4000/v1/audio/speech")
   local size; size=$(stat -c%s "$out" 2>/dev/null || stat -f%z "$out" 2>/dev/null || echo 0)
