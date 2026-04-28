@@ -101,7 +101,12 @@ def synth(url: str, payload: dict, out_path: str):
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            # RunPod's HTTPS proxy is fronted by Cloudflare, which rejects the
+            # default `Python-urllib/3.x` UA with HTTP 403 (error 1010).
+            "User-Agent": "voxtral-tts-runpod/1.0",
+        },
         method="POST",
     )
     t0 = time.time()
