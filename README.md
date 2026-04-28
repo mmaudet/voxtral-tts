@@ -69,14 +69,15 @@ Detailed steps are in [Deploying from scratch](#deploying-from-scratch).
 
 ## Endpoints
 
-Once the pod is up, both URLs are reachable from any machine:
+Once the pod is up, the LiteLLM proxy is the only externally reachable surface:
 
 ```bash
-# vLLM direct (no auth)
-curl -s https://<pod-id>-8000.proxy.runpod.net/v1/audio/speech \
+# LiteLLM proxy on :4000 (the only public endpoint)
+curl -s https://<pod-id>-4000.proxy.runpod.net/v1/audio/speech \
   -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $VOXTRAL_KEY_OWNER" \
   -d '{
-    "model": "mistralai/Voxtral-4B-TTS-2603",
+    "model": "voxtral-tts",
     "input": "Bonjour, ceci est Voxtral.",
     "voice": "fr_male",
     "response_format": "wav"
@@ -84,19 +85,7 @@ curl -s https://<pod-id>-8000.proxy.runpod.net/v1/audio/speech \
   --output sample.wav
 ```
 
-```bash
-# LiteLLM proxy (auth required)
-curl -s https://<pod-id>-4000.proxy.runpod.net/v1/audio/speech \
-  -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $VOXTRAL_KEY_OWNER" \
-  -d '{
-    "model": "voxtral-tts",
-    "input": "Test via LiteLLM.",
-    "voice": "fr_female",
-    "response_format": "wav"
-  }' \
-  --output sample-via-proxy.wav
-```
+vLLM is running inside the pod on `127.0.0.1:8000` (loopback only). If you need to bypass LiteLLM for debugging, SSH in and `curl http://localhost:8000/v1/audio/speech` directly — there is no public route to it.
 
 The `pod-id` is whatever RunPod assigns at create-time. URLs survive a stop/start cycle but **change** if you re-create the pod. See `runpod-pod-info.example.json` for the metadata schema; the actual `runpod-pod-info.json` is git-ignored because it's per-pod state.
 
