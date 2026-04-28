@@ -23,28 +23,26 @@ Self-hostable recipe for **Mistral AI's Voxtral-4B-TTS-2603** on a single RunPod
 ## Architecture
 
 ```
-┌─────────────────────────── RunPod pod (single GPU, BF16) ────────────────────────────┐
-│                                                                                      │
-│   :4000  LiteLLM proxy   custom_auth (auth.py) — N pre-shared keys, no DB            │
-│            │             allowlist built from VOXTRAL_KEY_* env vars                 │
-│            │                                                                         │
-│            └────► :8000  vLLM-Omni                                                   │
-│                          Voxtral-4B-TTS-2603 (≈ 7.8 GiB weights + KV cache)          │
-│                                                                                      │
-└──────────────────────────────────────────────────────────────────────────────────────┘
-        ▲                          ▲                                ▲
-        │                          │                                │
-   owner key                  colleague key                   ( internal only )
-   sk-voxtral-owner-…         sk-voxtral-colleague-…           vLLM is NOT auth-gated;
-        │                          │                           the public 8000 URL
-        └──────► :4000 ◄───────────┘                           bypasses LiteLLM
-                                                               keep its use to
-                                                               loopback / SSH tunnel.
+┌─────────────────────────── RunPod pod (single GPU, BF16) ─────────────────────────────┐
+│                                                                                       │
+│   :4000  LiteLLM proxy    custom_auth (auth.py) — N pre-shared keys, no DB            │
+│            │              allowlist built from VOXTRAL_KEY_* env vars                 │
+│            │                                                                          │
+│            └────► 127.0.0.1:8000  vLLM-Omni  (loopback-only, NOT externally exposed)  │
+│                                   Voxtral-4B-TTS-2603 (≈ 7.8 GiB weights + KV cache)  │
+│                                                                                       │
+└───────────────────────────────────────────────────────────────────────────────────────┘
+        ▲                          ▲
+        │                          │
+   owner key                  colleague key
+   sk-voxtral-owner-…         sk-voxtral-colleague-…
+        │                          │
+        └──────► :4000 ◄───────────┘
 
-       Public proxy: https://<pod-id>-{4000,8000}.proxy.runpod.net
+       Public proxy:  https://<pod-id>-4000.proxy.runpod.net
 ```
 
-The LiteLLM port (4000) is the only path you should expose. Each consumer gets a distinct `VOXTRAL_KEY_*` so they can be rotated/revoked independently (`./restart-pod.sh` after editing `.voxtral.env`). The vLLM port (8000) is anonymous by design — treat it as private.
+LiteLLM on port 4000 is the **only** externally reachable inference endpoint. vLLM binds to `127.0.0.1:8000` so the RunPod public proxy can't connect to it — every external call has to come through LiteLLM and present a valid `VOXTRAL_KEY_*`. Each consumer gets a distinct key, rotated/revoked by editing `.voxtral.env` and running `./restart-pod.sh`.
 
 ## Quick start
 

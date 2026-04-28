@@ -22,10 +22,14 @@ if curl -sf http://localhost:8000/health >/dev/null 2>&1; then
   echo "vLLM already healthy on :8000 — skipping start"
 else
   echo "Starting vLLM..."
+  # Bind to loopback only: LiteLLM (same container) reaches it via localhost,
+  # but RunPod's external HTTPS proxy can't connect → the public 8000 URL
+  # `https://<pod-id>-8000.proxy.runpod.net` returns 502 even though the port
+  # is declared in the pod metadata. All inference must go through LiteLLM.
   nohup vllm serve /workspace/models/Voxtral-4B-TTS-2603 \
     --omni \
     --port 8000 \
-    --host 0.0.0.0 \
+    --host 127.0.0.1 \
     --dtype bfloat16 \
     --max-model-len 4096 \
     --served-model-name mistralai/Voxtral-4B-TTS-2603 \

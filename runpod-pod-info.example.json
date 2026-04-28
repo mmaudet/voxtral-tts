@@ -15,9 +15,8 @@
     "cloudType": "SECURE",
     "envKeys": ["HF_HOME", "HF_TOKEN", "PUBLIC_KEY"],
     "publicEndpoints": {
-      "vllm":    "https://<podId>-8000.proxy.runpod.net/v1/audio/speech",
       "litellm": "https://<podId>-4000.proxy.runpod.net/v1/audio/speech"
     },
-    "note": "publicEndpoints are only reachable while currentStatus == RUNNING. Restart with POST /v1/pods/<id>/start."
+    "note": "Only LiteLLM (4000) is externally reachable. vLLM (8000) binds to 127.0.0.1 inside the pod, so the public 8000 URL returns 502. Endpoints are only live while currentStatus == RUNNING; restart with POST /v1/pods/<id>/start."
   }
 }
