@@ -96,6 +96,16 @@ curl -s https://<pod-id>-4000.proxy.runpod.net/v1/audio/speech \
 
 The `pod-id` is whatever RunPod assigns at create-time. URLs survive a stop/start cycle but **change** if you re-create the pod. See `runpod-pod-info.example.json` for the metadata schema; the actual `runpod-pod-info.json` is git-ignored because it's per-pod state.
 
+If your pod is stopped (`EXITED`) to save cost, the easiest way back is:
+
+```bash
+./restart-pod.sh                # uses runpod-pod-info.json[voxtral-main].podId
+# or
+./restart-pod.sh <pod-id>       # explicit
+```
+
+The script POSTs `/v1/pods/<id>/start`, polls until `RUNNING` with `publicIp` and SSH port assigned, syncs the latest local `start_services.sh` + `litellm_config.yaml` to the pod, runs `start_services.sh` (vLLM + LiteLLM), and prints the proxy URLs. Total cold restart ≈ 5-6 min.
+
 ## Voices (20 presets)
 
 | Style / Language | Voices |
