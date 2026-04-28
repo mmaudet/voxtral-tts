@@ -1,0 +1,72 @@
+#!/bin/bash
+# Starts vLLM (port 8000) and LiteLLM proxy (port 4000) in background.
+# Idempotent: skips start if a healthy service is already running.
+
+set -euo pipefail
+mkdir -p /workspace/logs
+
+# RunPod sets pod env vars on container PID 1 only; login shells don't get them.
+if [ -r /proc/1/environ ]; then
+  while IFS= read -r -d '' kv; do
+    case "$kv" in
+      HF_TOKEN=*|HF_HOME=*) export "$kv" ;;
+    esac
+  done < /proc/1/environ
+fi
+
+# shellcheck disable=SC1091
+source /workspace/voxtral-env/bin/activate
+
+# --- vLLM ---
+if curl -sf http://localhost:8000/health >/dev/null 2>&1; then
+  echo "vLLM already healthy on :8000 — skipping start"
+else
+  echo "Starting vLLM..."
+  nohup vllm serve /workspace/models/Voxtral-4B-TTS-2603 \
+    --omni \
+    --port 8000 \
+    --host 0.0.0.0 \
+    --dtype bfloat16 \
+    --max-model-len 4096 \
+    --served-model-name mistralai/Voxtral-4B-TTS-2603 \
+    > /workspace/logs/vllm.log 2>&1 &
+  echo "vLLM PID: $!"
+fi
+
+# --- wait for vLLM health (up to 15 min — vllm-omni's 2-stage engine
+#     plus first-time CUDAGraph capture / flashinfer JIT can take 5-10 min) ---
+echo "Waiting for vLLM /health..."
+for i in $(seq 1 180); do
+  if curl -sf http://localhost:8000/health >/dev/null 2>&1; then
+    echo "vLLM healthy after $((i*5))s"
+    break
+  fi
+  sleep 5
+done
+curl -sf http://localhost:8000/health >/dev/null || { echo "vLLM did NOT become healthy"; tail -50 /workspace/logs/vllm.log; exit 1; }
+
+# --- LiteLLM ---
+if curl -sf http://localhost:4000/health/liveliness >/dev/null 2>&1 \
+   || curl -sf http://localhost:4000/health >/dev/null 2>&1; then
+  echo "LiteLLM already up on :4000 — skipping start"
+else
+  echo "Starting LiteLLM..."
+  nohup litellm --config /workspace/litellm_config.yaml \
+    --port 4000 --host 0.0.0.0 \
+    > /workspace/logs/litellm.log 2>&1 &
+  echo "LiteLLM PID: $!"
+fi
+
+# --- wait for LiteLLM ---
+for i in $(seq 1 30); do
+  if curl -sf http://localhost:4000/health/liveliness >/dev/null 2>&1 \
+     || curl -sf http://localhost:4000/health >/dev/null 2>&1; then
+    echo "LiteLLM up after $((i*2))s"
+    break
+  fi
+  sleep 2
+done
+
+echo "=== SERVICES READY ==="
+echo "vLLM:    http://localhost:8000/v1/audio/speech"
+echo "LiteLLM: http://localhost:4000/v1/audio/speech (model=voxtral-tts, key=sk-voxtral-local)"

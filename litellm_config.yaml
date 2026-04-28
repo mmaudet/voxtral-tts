@@ -1,0 +1,13 @@
+model_list:
+  - model_name: voxtral-tts
+    litellm_params:
+      model: openai/mistralai/Voxtral-4B-TTS-2603
+      api_base: http://localhost:8000/v1
+      api_key: none
+
+general_settings:
+  master_key: sk-voxtral-local
+
+litellm_settings:
+  drop_params: false
+  request_timeout: 120

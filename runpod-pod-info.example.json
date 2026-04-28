@@ -1,0 +1,23 @@
+{
+  "voxtral-main": {
+    "podId": "<assigned-on-create>",
+    "name": "voxtral-main",
+    "gpuTypeId": "NVIDIA RTX A5000",
+    "gpuCount": 1,
+    "imageName": "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04",
+    "containerDiskInGb": 50,
+    "volumeInGb": 50,
+    "volumeMountPath": "/workspace",
+    "ports": ["8000/http", "4000/http", "22/tcp"],
+    "publicIp": "<assigned>",
+    "sshPort": "<assigned-22nnnn>",
+    "costPerHrRunning": 0.27,
+    "cloudType": "SECURE",
+    "envKeys": ["HF_HOME", "HF_TOKEN", "PUBLIC_KEY"],
+    "publicEndpoints": {
+      "vllm":    "https://<podId>-8000.proxy.runpod.net/v1/audio/speech",
+      "litellm": "https://<podId>-4000.proxy.runpod.net/v1/audio/speech"
+    },
+    "note": "publicEndpoints are only reachable while currentStatus == RUNNING. Restart with POST /v1/pods/<id>/start."
+  }
+}

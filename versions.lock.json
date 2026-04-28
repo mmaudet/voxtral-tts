@@ -1,0 +1,27 @@
+{
+  "captured_at": "2026-04-28T19:50Z",
+  "pod_id": "c94lskq56xrgva",
+  "gpu": "NVIDIA RTX A5000 (24 GB)",
+  "image": "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04",
+  "python": "3.10.12",
+  "packages": {
+    "vllm": "0.18.1",
+    "vllm-omni": "0.18.0",
+    "torch": "2.10.0",
+    "torchaudio": "2.10.0",
+    "torchvision": "0.25.0",
+    "transformers": "4.57.6",
+    "mistral_common": "1.11.0",
+    "litellm": "1.83.14",
+    "librosa": "0.11.0",
+    "soundfile": "0.13.1",
+    "pydub": "0.25.1",
+    "huggingface_hub": "0.36.2",
+    "flashinfer-python": "0.6.6",
+    "flashinfer-cubin": "0.6.6",
+    "numpy": "2.2.6",
+    "pydantic": "2.12.3",
+    "triton": "3.6.0"
+  },
+  "apt_packages_added": ["python3.10-venv", "python3.10-dev", "build-essential", "ffmpeg", "libsndfile1"]
+}

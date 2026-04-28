@@ -1,0 +1,22 @@
+# Secrets — never commit
+.voxtral.env
+*.env
+!*.env.example
+
+# Per-pod runtime state (regenerated on every deploy)
+runpod-pod-info.json
+
+# Generated test audio (voices are CC BY-NC, do not redistribute)
+test_audio/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
