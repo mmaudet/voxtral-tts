@@ -6,8 +6,9 @@
 # Per-pod runtime state (regenerated on every deploy)
 runpod-pod-info.json
 
-# Generated test audio (voices are CC BY-NC, do not redistribute)
+# Generated audio (voices are CC BY-NC, do not redistribute)
 test_audio/
+samples/
 
 # OS / editor noise
 .DS_Store
