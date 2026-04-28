@@ -10,6 +10,9 @@ runpod-pod-info.json
 # (e.g. keys.local.md, scratch.local.txt, debug.local.json)
 *.local.*
 
+# Personal one-off generators (contain brand/marketing copy, not generic recipe)
+generate-murmure-samples.py
+
 # Generated audio (voices are CC BY-NC, do not redistribute)
 test_audio/
 samples/
