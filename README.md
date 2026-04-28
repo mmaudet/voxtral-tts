@@ -127,7 +127,8 @@ Response formats: `wav` (default), `pcm`, `flac`, `mp3`, `aac`, `opus`. Output i
 ├── litellm_config.yaml             proxy config: alias `voxtral-tts`, master_key sk-voxtral-local
 ├── install_voxtral.sh              one-shot install on the pod (idempotent)
 ├── download_model.sh               pull the model to /workspace/models (idempotent)
-├── start_services.sh               launch vLLM + LiteLLM (idempotent, 15 min boot timeout)
+├── start_services.sh               launch vLLM + LiteLLM on the pod (idempotent)
+├── restart-pod.sh                  local: start a stopped pod end-to-end (start API → SSH → services → URLs)
 └── test_endpoints.sh               smoke-test 7 European languages on both endpoints
 ```
 
