@@ -49,6 +49,39 @@ for i in $(seq 1 180); do
 done
 curl -sf http://localhost:8000/health >/dev/null || { echo "vLLM did NOT become healthy"; tail -50 /workspace/logs/vllm.log; exit 1; }
 
+# --- XTTS v2 (voice cloning, optional) ---
+# Skipped silently if /workspace/xtts-env hasn't been created (i.e.
+# install_xtts.sh hasn't been run on this pod). LiteLLM still boots without it.
+# 8002 picked instead of 8001 because the RunPod base image runs an nginx on
+# 8001 that returns 200 to any /health probe — false positives confuse the
+# `already up` check.
+if [ -d /workspace/xtts-env ] && [ -f /workspace/xtts_server.py ]; then
+  # Check for an *xtts-specific* route, not just /health (which any nginx
+  # could 200 on). /v1/voices is the cheapest XTTS-only endpoint.
+  if curl -sf http://127.0.0.1:8002/v1/voices >/dev/null 2>&1; then
+    echo "XTTS already up on :8002 — skipping start"
+  else
+    echo "Starting XTTS server..."
+    nohup bash -c '
+      source /workspace/xtts-env/bin/activate
+      export COQUI_TOS_AGREED=1
+      export TTS_HOME=/workspace/xtts_models
+      exec python /workspace/xtts_server.py
+    ' > /workspace/logs/xtts.log 2>&1 &
+    echo "XTTS PID: $!"
+  fi
+
+  # XTTS first-load is fast (~30 s) since the model lives on the volume already
+  echo "Waiting for XTTS /health..."
+  for i in $(seq 1 60); do
+    if curl -sf http://127.0.0.1:8002/health >/dev/null 2>&1; then
+      echo "XTTS healthy after $((i*2))s"
+      break
+    fi
+    sleep 2
+  done
+fi
+
 # --- LiteLLM ---
 if curl -sf http://localhost:4000/health/liveliness >/dev/null 2>&1 \
    || curl -sf http://localhost:4000/health >/dev/null 2>&1; then

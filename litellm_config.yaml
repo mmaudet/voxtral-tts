@@ -4,6 +4,13 @@ model_list:
       model: openai/mistralai/Voxtral-4B-TTS-2603
       api_base: http://localhost:8000/v1
       api_key: none
+  - model_name: xtts-clone
+    litellm_params:
+      # XTTS v2 (Coqui) — voice cloning, served by xtts_server.py on loopback.
+      # Reference samples live in /workspace/xtts_voices/<voice>.wav on the pod.
+      model: openai/xtts-v2
+      api_base: http://localhost:8002/v1
+      api_key: none
 
 general_settings:
   # The master key bypasses custom_auth entirely — keep it private. Read from

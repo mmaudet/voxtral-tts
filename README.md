@@ -6,13 +6,12 @@ Self-hostable recipe for **Mistral AI's Voxtral-4B-TTS-2603** on a single RunPod
 
 ## What you get
 
-- Two HTTPS endpoints, both speaking the OpenAI `/v1/audio/speech` schema:
-  - **vLLM direct** — anonymous, low-overhead, recommended for internal calls.
-  - **LiteLLM proxy** — gated by a master key, drops in for any client that already speaks OpenAI's API (Python `openai` SDK, LangChain, n8n, custom HTTP).
-- 9 supported languages: English, French, Spanish, Portuguese, Italian, Dutch, German, Arabic, Hindi.
-- 20 reference voices (5 generic + 12 language-tagged + 1 ar_male + 2 hi).
-- Output: 24 kHz WAV / PCM / FLAC / MP3 / AAC / Opus.
-- Boots cold in ≈ 3-4 min on an RTX A5000 (24 GB) at ≈ **$0.27 / hour**.
+- A single HTTPS endpoint speaking the OpenAI `/v1/audio/speech` schema, gated by per-user keys (LiteLLM with `custom_auth`, no DB).
+- Two TTS models behind it, picked via the `model` field of the request:
+  - **`voxtral-tts`** → vLLM-Omni serving `Voxtral-4B-TTS-2603`. 9 languages (EN/FR/ES/PT/IT/NL/DE/AR/HI), 20 stock voices.
+  - **`xtts-clone`** → Coqui XTTS v2 with **voice cloning**. 17 languages. Drop a 5-15 s reference sample at `/workspace/xtts_voices/<name>.wav` on the pod, then `voice: "<name>"` in the request.
+- Single-pod deployment, both models running side-by-side on one GPU (≈ 18 GB Voxtral + ≈ 5 GB XTTS).
+- Output: 24 kHz WAV / PCM / FLAC / MP3 / AAC / Opus (Voxtral); 24 kHz WAV (XTTS).
 
 ## What you DON'T get
 
@@ -23,15 +22,19 @@ Self-hostable recipe for **Mistral AI's Voxtral-4B-TTS-2603** on a single RunPod
 ## Architecture
 
 ```
-┌─────────────────────────── RunPod pod (single GPU, BF16) ─────────────────────────────┐
-│                                                                                       │
-│   :4000  LiteLLM proxy    custom_auth (auth.py) — N pre-shared keys, no DB            │
-│            │              allowlist built from VOXTRAL_KEY_* env vars                 │
-│            │                                                                          │
-│            └────► 127.0.0.1:8000  vLLM-Omni  (loopback-only, NOT externally exposed)  │
-│                                   Voxtral-4B-TTS-2603 (≈ 7.8 GiB weights + KV cache)  │
-│                                                                                       │
-└───────────────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────── RunPod pod (single GPU, BF16) ──────────────────────────────┐
+│                                                                                        │
+│                                  ┌──► 127.0.0.1:8000  vLLM-Omni                        │
+│   :4000  LiteLLM proxy           │                    model=voxtral-tts                │
+│   custom_auth (auth.py) ─────────┤                    20 stock voices, no cloning      │
+│   N keys, no DB                  │                                                     │
+│   model alias routing            └──► 127.0.0.1:8002  xtts_server.py (FastAPI)         │
+│                                                       model=xtts-clone                 │
+│                                                       Coqui XTTS v2, voice cloning     │
+│                                                       voices: /workspace/xtts_voices/  │
+│                                                                                        │
+│   both upstream services bind to loopback — NOT externally exposed                     │
+└────────────────────────────────────────────────────────────────────────────────────────┘
         ▲                          ▲
         │                          │
    owner key                  colleague key
@@ -42,7 +45,7 @@ Self-hostable recipe for **Mistral AI's Voxtral-4B-TTS-2603** on a single RunPod
        Public proxy:  https://<pod-id>-4000.proxy.runpod.net
 ```
 
-LiteLLM on port 4000 is the **only** externally reachable inference endpoint. vLLM binds to `127.0.0.1:8000` so the RunPod public proxy can't connect to it — every external call has to come through LiteLLM and present a valid `VOXTRAL_KEY_*`. Each consumer gets a distinct key, rotated/revoked by editing `.voxtral.env` and running `./restart-pod.sh`.
+LiteLLM on port 4000 is the **only** externally reachable inference endpoint. Both upstream services (vLLM on 8000, XTTS on 8002) bind to `127.0.0.1` so the RunPod public proxy can't connect to them — every external call has to come through LiteLLM and present a valid `VOXTRAL_KEY_*`. Each consumer gets a distinct key, rotated/revoked by editing `.voxtral.env` and running `./restart-pod.sh`. The `model` field of the OpenAI payload picks which backend handles the request: `voxtral-tts` → Voxtral, `xtts-clone` → XTTS v2.
 
 ## Quick start
 
@@ -72,7 +75,7 @@ Detailed steps are in [Deploying from scratch](#deploying-from-scratch).
 Once the pod is up, the LiteLLM proxy is the only externally reachable surface:
 
 ```bash
-# LiteLLM proxy on :4000 (the only public endpoint)
+# voxtral-tts: 20 stock voices (Mistral)
 curl -s https://<pod-id>-4000.proxy.runpod.net/v1/audio/speech \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $VOXTRAL_KEY_OWNER" \
@@ -83,9 +86,44 @@ curl -s https://<pod-id>-4000.proxy.runpod.net/v1/audio/speech \
     "response_format": "wav"
   }' \
   --output sample.wav
+
+# xtts-clone: voice cloning. `voice` is the basename of a WAV at
+# /workspace/xtts_voices/<voice>.wav (drop yours via scp first — see below).
+curl -s https://<pod-id>-4000.proxy.runpod.net/v1/audio/speech \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $VOXTRAL_KEY_OWNER" \
+  -d '{
+    "model": "xtts-clone",
+    "input": "Bonjour, c'\''est ma voix.",
+    "voice": "michel",
+    "language": "fr",
+    "response_format": "wav"
+  }' \
+  --output cloned.wav
 ```
 
-vLLM is running inside the pod on `127.0.0.1:8000` (loopback only). If you need to bypass LiteLLM for debugging, SSH in and `curl http://localhost:8000/v1/audio/speech` directly — there is no public route to it.
+Both upstream services bind to `127.0.0.1` (vLLM on 8000, XTTS on 8002). If you need to bypass LiteLLM for debugging, SSH in and curl localhost directly — there is no public route to either backend.
+
+### Registering a custom voice for xtts-clone
+
+```bash
+# 1. record (or trim) a clean 5-15 s mono WAV of the speaker, ≥ 16 kHz
+sox raw_recording.wav -c 1 -r 22050 michel.wav trim 0 12
+
+# 2. upload to the pod (no API; just a file in a directory)
+scp -P <ssh_port> michel.wav root@<pod_ip>:/workspace/xtts_voices/michel.wav
+
+# 3. it's immediately available — no restart, no precomputation
+curl -s https://<pod-id>-4000.proxy.runpod.net/v1/audio/speech \
+  -H "Authorization: Bearer $VOXTRAL_KEY_OWNER" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"xtts-clone","input":"Test","voice":"michel","language":"fr"}' \
+  --output out.wav
+```
+
+XTTS computes the speaker conditioning from the reference WAV at request time. First call after the pod boots is slow (~60 s — XTTS lazy-loads on first use); steady-state synthesis is ~2-5 s for short texts. To list the registered voices: `curl http://localhost:8002/v1/voices` (loopback only).
+
+XTTS v2 supports: `en`, `es`, `fr`, `de`, `it`, `pt`, `pl`, `tr`, `ru`, `nl`, `cs`, `ar`, `zh-cn`, `ja`, `hu`, `ko`, `hi`. Pass the code via the `language` field; default is `fr`.
 
 The `pod-id` is whatever RunPod assigns at create-time. URLs survive a stop/start cycle but **change** if you re-create the pod. See `runpod-pod-info.example.json` for the metadata schema; the actual `runpod-pod-info.json` is git-ignored because it's per-pod state.
 
@@ -129,11 +167,13 @@ Response formats: `wav` (default), `pcm`, `flac`, `mp3`, `aac`, `opus`. Output i
 ├── versions.lock.json              the *exact* package versions known to work
 ├── litellm_config.yaml             proxy config: alias `voxtral-tts`, custom_auth → auth.py
 ├── auth.py                         custom_auth module: any `VOXTRAL_KEY_<NAME>` env var becomes a valid Bearer token (no DB)
-├── install_voxtral.sh              one-shot install on the pod (idempotent)
-├── download_model.sh               pull the model to /workspace/models (idempotent)
-├── start_services.sh               launch vLLM + LiteLLM on the pod (idempotent)
+├── install_voxtral.sh              install vLLM + vLLM-Omni + LiteLLM on the pod (idempotent)
+├── install_xtts.sh                 install Coqui XTTS v2 in /workspace/xtts-env (idempotent, optional)
+├── download_model.sh               pull the Voxtral weights to /workspace/models (idempotent)
+├── xtts_server.py                  FastAPI wrapper — exposes XTTS v2 as OpenAI /v1/audio/speech on 127.0.0.1:8002
+├── start_services.sh               launch vLLM + XTTS + LiteLLM on the pod (idempotent)
 ├── restart-pod.sh                  local: start a stopped pod end-to-end (start API → SSH → services → URLs)
-└── test_endpoints.sh               smoke-test 7 European languages on both endpoints
+└── test_endpoints.sh               smoke-test 7 European languages on the Voxtral endpoint
 ```
 
 ## Deploying from scratch
@@ -263,8 +303,12 @@ Apt packages: `python3.10-venv python3.10-dev build-essential ffmpeg libsndfile1
 | `vLLM did NOT become healthy` after 15 min | Stage-1 (audio decoder) init genuinely failed | `tail /workspace/logs/vllm.log` and grep for the actual error; restart with `start_services.sh` |
 | LiteLLM returns 401 `invalid api key` | Bearer token isn't in the `VOXTRAL_KEY_*` allowlist | Use `$VOXTRAL_KEY_OWNER` (or `$VOXTRAL_KEY_COLLEAGUE`); the master key alone won't work on `/v1/audio/speech` by design |
 | LiteLLM returns 401 `missing api key` | No `Authorization: Bearer …` header at all | Add the header |
-| Audio file is 0 bytes / WAV without RIFF header | Bad voice name | Pick from the 20 listed above |
+| Audio file is 0 bytes / WAV without RIFF header | Bad voice name | Pick from the 20 listed above (Voxtral) or the basenames in `/workspace/xtts_voices/` (XTTS) |
 | `HTTP 403, error code: 1010` from the public proxy URL | Cloudflare in front of `*.proxy.runpod.net` rejects `Python-urllib/*` UA | Send any non-default `User-Agent` header (curl works out of the box; `generate-murmure-samples.py` already sets one) |
+| XTTS health check passes but `/v1/voices` 404s | The RunPod base image runs an `nginx` on port 8001 that 200s `/health` blindly. We bind XTTS to **8002** instead — make sure your `litellm_config.yaml` and `start_services.sh` agree | Already done in this repo; only matters if you fork |
+| `ImportError: cannot import name 'isin_mps_friendly' from 'transformers.pytorch_utils'` | XTTS install pulled `transformers 5.x`, but coqui-tts 0.27 only works with 4.x | `install_xtts.sh` pins `transformers>=4.46,<5` |
+| `ImportError: torchcodec library is required for audio IO` (XTTS, post-torch-2.9) | Missing `torchcodec` on torch ≥ 2.9 | `install_xtts.sh` uses the `coqui-tts[codec]` extra |
+| `PackageNotFoundError: No package metadata was found for torch` after coqui-tts install | coqui-tts 0.27 doesn't list torch in its hard deps (so users pick a CUDA-matching wheel) | `install_xtts.sh` installs torch explicitly |
 
 ## Credits
 
@@ -277,3 +321,4 @@ Apt packages: `python3.10-venv python3.10-dev build-essential ffmpeg libsndfile1
 
 - Scripts in this repository: **MIT** (see [LICENSE](LICENSE)).
 - The Voxtral-4B-TTS-2603 model and its 20 voice presets, retrieved at runtime from HuggingFace, are licensed **CC BY-NC 4.0** by Mistral AI. **Use is non-commercial only.** This repo neither redistributes nor relicenses the model.
+- Coqui XTTS v2, retrieved at runtime by `coqui-tts`, is licensed **CPML (Coqui Public Model License) — non-commercial only**. Same constraint as Voxtral. Reference audio you upload to `/workspace/xtts_voices/` is yours; the cloned output inherits the CPML restriction.
