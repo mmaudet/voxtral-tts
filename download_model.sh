@@ -18,18 +18,20 @@ fi
 # shellcheck disable=SC1091
 source /workspace/voxtral-env/bin/activate
 
-MODEL_DIR=/workspace/models/Voxtral-4B-TTS-2603
+MODEL_DIR=/workspace/models/Qwen3-TTS-12Hz-1.7B-CustomVoice
 mkdir -p "$MODEL_DIR"
 
+# Qwen3-TTS-12Hz-1.7B-CustomVoice — Apache 2.0, replaces Voxtral.
 # `huggingface-cli` was renamed to `hf` in recent huggingface_hub versions.
-hf download mistralai/Voxtral-4B-TTS-2603 \
+# (huggingface_hub 0.x — pinned <1.0 elsewhere — has no `--format` flag, so
+# we just let it print progress to the log.)
+hf download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
   --local-dir "$MODEL_DIR" \
-  --token "$HF_TOKEN" \
-  --format quiet
+  --token "$HF_TOKEN"
 
 echo "=== model layout ==="
 ls -lh "$MODEL_DIR"
-echo "=== voice_embedding count ==="
-ls "$MODEL_DIR/voice_embedding/" | wc -l
+echo "=== files (top by size) ==="
+ls -lhS "$MODEL_DIR/" | head -10
 
 echo "=== DOWNLOAD OK: $(date -u +%FT%TZ) ==="

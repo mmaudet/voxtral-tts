@@ -26,13 +26,16 @@ else
   # but RunPod's external HTTPS proxy can't connect → the public 8000 URL
   # `https://<pod-id>-8000.proxy.runpod.net` returns 502 even though the port
   # is declared in the pod metadata. All inference must go through LiteLLM.
-  nohup vllm serve /workspace/models/Voxtral-4B-TTS-2603 \
+  #
+  # Qwen3-TTS-12Hz-1.7B-CustomVoice (Apache 2.0) replaces Voxtral here. Same
+  # vllm-omni 0.18 binary, different model + parser. Voxtral weights stay on
+  # disk under /workspace/models/Voxtral-4B-TTS-2603 in case of rollback.
+  nohup vllm serve /workspace/models/Qwen3-TTS-12Hz-1.7B-CustomVoice \
     --omni \
     --port 8000 \
     --host 127.0.0.1 \
     --dtype bfloat16 \
-    --max-model-len 4096 \
-    --served-model-name mistralai/Voxtral-4B-TTS-2603 \
+    --served-model-name Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
     > /workspace/logs/vllm.log 2>&1 &
   echo "vLLM PID: $!"
 fi

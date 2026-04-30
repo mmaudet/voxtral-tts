@@ -1,7 +1,9 @@
 model_list:
-  - model_name: voxtral-tts
+  - model_name: qwen-tts
     litellm_params:
-      model: openai/mistralai/Voxtral-4B-TTS-2603
+      # Qwen3-TTS-12Hz-1.7B-CustomVoice (Apache 2.0) served by vLLM-Omni on
+      # loopback :8000. Replaced Voxtral as the "preset voices" backend.
+      model: openai/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
       api_base: http://localhost:8000/v1
       api_key: none
   - model_name: xtts-clone

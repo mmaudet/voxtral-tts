@@ -1,22 +1,22 @@
 # voxtral-tts
 
-Self-hostable recipe for **Mistral AI's Voxtral-4B-TTS-2603** on a single RunPod GPU, served by **vLLM-Omni** with an OpenAI-compatible `/v1/audio/speech` endpoint and a **LiteLLM** proxy in front of it.
+Self-hostable recipe for **Qwen3-TTS-12Hz-1.7B-CustomVoice** (Alibaba Tongyi, Apache 2.0) and **Coqui XTTS v2** running side-by-side on a single RunPod GPU. Both speak the OpenAI-compatible `/v1/audio/speech` schema; both are gated by **LiteLLM** with per-user API keys.
 
-> ⚠ **Non-commercial only.** Voxtral and its 20 voice presets are licensed CC BY-NC 4.0. The scripts in this repo are MIT, but the *model* you'll run is not — see [LICENSE](LICENSE) and the [Mistral model card](https://huggingface.co/mistralai/Voxtral-4B-TTS-2603).
+> The repo name is historical. The recipe originally served Mistral's **Voxtral-4B-TTS-2603** (CC BY-NC 4.0); it was swapped to Qwen3-TTS in April 2026 to allow commercial use of the preset-voice path. The Voxtral install procedure still works — see [git history](../../commits/main) — but the live default is Qwen.
 
 ## What you get
 
 - A single HTTPS endpoint speaking the OpenAI `/v1/audio/speech` schema, gated by per-user keys (LiteLLM with `custom_auth`, no DB).
 - Two TTS models behind it, picked via the `model` field of the request:
-  - **`voxtral-tts`** → vLLM-Omni serving `Voxtral-4B-TTS-2603`. 9 languages (EN/FR/ES/PT/IT/NL/DE/AR/HI), 20 stock voices.
-  - **`xtts-clone`** → Coqui XTTS v2 with **voice cloning**. 17 languages. Drop a 5-15 s reference sample at `/workspace/xtts_voices/<name>.wav` on the pod, then `voice: "<name>"` in the request.
-- Single-pod deployment, both models running side-by-side on one GPU (≈ 18 GB Voxtral + ≈ 5 GB XTTS).
-- Output: 24 kHz WAV / PCM / FLAC / MP3 / AAC / Opus (Voxtral); 24 kHz WAV (XTTS).
+  - **`qwen-tts`** → vLLM-Omni serving `Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice` (Apache 2.0). 10 languages (ZH/EN/JA/KO/DE/FR/RU/PT/ES/IT), 9 stock voices.
+  - **`xtts-clone`** → Coqui XTTS v2 with **voice cloning** (CPML, non-commercial). 17 languages. Drop a 5-15 s reference sample at `/workspace/xtts_voices/<name>.wav` on the pod, then `voice: "<name>"` in the request.
+- Single-pod deployment, both models running side-by-side on one GPU (≈ 4 GB Qwen + ≈ 5 GB XTTS).
+- Output: 24 kHz WAV / PCM / FLAC / MP3 / AAC / Opus (Qwen); 24 kHz WAV (XTTS).
 
 ## What you DON'T get
 
 - Multi-tenant routing, queueing, autoscaling — this is a single-pod recipe.
-- A model gateway that hides the CC BY-NC license. **You** are responsible for compliance.
+- A model gateway that hides each backend's license — Qwen is Apache 2.0 (commercial OK), but XTTS v2 is CPML (non-commercial). **You** are responsible for picking the right `model` for your use case.
 - Voice cloning out of the box. The model card mentions adaptation; this repo only exposes the 20 stock voices.
 
 ## Architecture
@@ -25,8 +25,8 @@ Self-hostable recipe for **Mistral AI's Voxtral-4B-TTS-2603** on a single RunPod
 ┌─────────────────────────── RunPod pod (single GPU, BF16) ──────────────────────────────┐
 │                                                                                        │
 │                                  ┌──► 127.0.0.1:8000  vLLM-Omni                        │
-│   :4000  LiteLLM proxy           │                    model=voxtral-tts                │
-│   custom_auth (auth.py) ─────────┤                    20 stock voices, no cloning      │
+│   :4000  LiteLLM proxy           │                    model=qwen-tts                   │
+│   custom_auth (auth.py) ─────────┤                    9 stock voices (Apache 2.0)      │
 │   N keys, no DB                  │                                                     │
 │   model alias routing            └──► 127.0.0.1:8002  xtts_server.py (FastAPI)         │
 │                                                       model=xtts-clone                 │
@@ -45,7 +45,7 @@ Self-hostable recipe for **Mistral AI's Voxtral-4B-TTS-2603** on a single RunPod
        Public proxy:  https://<pod-id>-4000.proxy.runpod.net
 ```
 
-LiteLLM on port 4000 is the **only** externally reachable inference endpoint. Both upstream services (vLLM on 8000, XTTS on 8002) bind to `127.0.0.1` so the RunPod public proxy can't connect to them — every external call has to come through LiteLLM and present a valid `VOXTRAL_KEY_*`. Each consumer gets a distinct key, rotated/revoked by editing `.voxtral.env` and running `./restart-pod.sh`. The `model` field of the OpenAI payload picks which backend handles the request: `voxtral-tts` → Voxtral, `xtts-clone` → XTTS v2.
+LiteLLM on port 4000 is the **only** externally reachable inference endpoint. Both upstream services (vLLM on 8000, XTTS on 8002) bind to `127.0.0.1` so the RunPod public proxy can't connect to them — every external call has to come through LiteLLM and present a valid `VOXTRAL_KEY_*`. Each consumer gets a distinct key, rotated/revoked by editing `.voxtral.env` and running `./restart-pod.sh`. The `model` field of the OpenAI payload picks which backend handles the request: `qwen-tts` → Qwen3-TTS, `xtts-clone` → XTTS v2.
 
 ## Quick start
 
@@ -75,14 +75,14 @@ Detailed steps are in [Deploying from scratch](#deploying-from-scratch).
 Once the pod is up, the LiteLLM proxy is the only externally reachable surface:
 
 ```bash
-# voxtral-tts: 20 stock voices (Mistral)
+# qwen-tts: 9 stock voices (Qwen3-TTS-CustomVoice, Apache 2.0)
 curl -s https://<pod-id>-4000.proxy.runpod.net/v1/audio/speech \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $VOXTRAL_KEY_OWNER" \
   -d '{
-    "model": "voxtral-tts",
-    "input": "Bonjour, ceci est Voxtral.",
-    "voice": "fr_male",
+    "model": "qwen-tts",
+    "input": "Bonjour, voici un test.",
+    "voice": "Aiden",
     "response_format": "wav"
   }' \
   --output sample.wav
@@ -137,43 +137,49 @@ If your pod is stopped (`EXITED`) to save cost, the easiest way back is:
 
 The script POSTs `/v1/pods/<id>/start`, polls until `RUNNING` with `publicIp` and SSH port assigned, syncs the latest local `start_services.sh` + `litellm_config.yaml` to the pod, runs `start_services.sh` (vLLM + LiteLLM), and prints the proxy URLs. Total cold restart ≈ 5-6 min.
 
-## Voices (20 presets)
+## Voices
 
-| Style / Language | Voices |
-|---|---|
-| Generic (English-leaning) | `casual_female`, `casual_male`, `cheerful_female`, `neutral_female`, `neutral_male` |
-| French (FR) | `fr_female`, `fr_male` |
-| German (DE) | `de_female`, `de_male` |
-| Spanish (ES) | `es_female`, `es_male` |
-| Italian (IT) | `it_female`, `it_male` |
-| Dutch (NL) | `nl_female`, `nl_male` |
-| Portuguese (PT) | `pt_female`, `pt_male` |
-| Hindi (HI) | `hi_female`, `hi_male` |
-| Arabic (AR) | `ar_male` *(no female variant)* |
+### `qwen-tts` (Qwen3-TTS-12Hz-1.7B-CustomVoice — 9 presets, Apache 2.0)
 
-The `voice` field selects the voice embedding (prosody, timbre, accent). The `input` text drives the language. A non-matching pair (e.g. `de_female` + English text) usually works but the prosody favours the voice's native language.
+| Voice | Native language | Description (per Qwen model card) |
+|---|---|---|
+| `Vivian` | Chinese | Bright, slightly edgy young female voice |
+| `Serena` | Chinese | Warm, gentle young female voice |
+| `Uncle_Fu` | Chinese | Seasoned male voice with a low, mellow timbre |
+| `Dylan` | Chinese (Beijing dialect) | Youthful Beijing male, clear natural timbre |
+| `Eric` | Chinese (Sichuan dialect) | Lively Chengdu male, slightly husky brightness |
+| `Ryan` | English | Dynamic male voice with strong rhythmic drive |
+| `Aiden` | English | Sunny American male voice with a clear midrange |
+| `Ono_Anna` | Japanese | Playful Japanese female, light nimble timbre |
+| `Sohee` | Korean | Warm Korean female voice with rich emotion |
 
-Response formats: `wav` (default), `pcm`, `flac`, `mp3`, `aac`, `opus`. Output is 24 kHz mono.
+Qwen3-TTS supports 10 languages via the model itself: `Chinese, English, Japanese, Korean, German, French, Russian, Portuguese, Spanish, Italian`. **None of the 9 stock voices is a native European-language speaker** — French/German/etc. text will be spoken with the speaker's native accent (e.g. Aiden = English-accented French, Vivian = Chinese-accented French). For native-quality French use either `xtts-clone` (record your own French sample) or move to the `Qwen/Qwen3-TTS-12Hz-1.7B-Base` variant for cloning under Apache 2.0.
+
+### `xtts-clone` (Coqui XTTS v2 — voice cloning, CPML)
+
+No fixed voices: `voice` names a basename in `/workspace/xtts_voices/<name>.wav` on the pod. Upload any 5-15 s mono WAV via SSH and it becomes a usable voice ID.
+
+Response formats: `wav` (default), `pcm`, `flac`, `mp3`, `aac`, `opus` (Qwen); `wav` only (XTTS). Output is 24 kHz mono in both cases.
 
 ## Repository layout
 
 ```
 .
 ├── README.md                       this file
-├── LICENSE                         MIT for scripts; model is CC BY-NC 4.0
+├── LICENSE                         MIT for scripts; Qwen3-TTS is Apache 2.0, XTTS v2 is CPML (NC)
 ├── .voxtral.env.example            template for secrets — copy to .voxtral.env (gitignored)
 ├── .gitignore
 ├── runpod-pod-info.example.json    schema for the per-pod state file (gitignored real one)
 ├── versions.lock.json              the *exact* package versions known to work
-├── litellm_config.yaml             proxy config: alias `voxtral-tts`, custom_auth → auth.py
+├── litellm_config.yaml             proxy config: aliases `qwen-tts` + `xtts-clone`, custom_auth → auth.py
 ├── auth.py                         custom_auth module: any `VOXTRAL_KEY_<NAME>` env var becomes a valid Bearer token (no DB)
 ├── install_voxtral.sh              install vLLM + vLLM-Omni + LiteLLM on the pod (idempotent)
 ├── install_xtts.sh                 install Coqui XTTS v2 in /workspace/xtts-env (idempotent, optional)
-├── download_model.sh               pull the Voxtral weights to /workspace/models (idempotent)
+├── download_model.sh               pull the Qwen3-TTS weights to /workspace/models (idempotent)
 ├── xtts_server.py                  FastAPI wrapper — exposes XTTS v2 as OpenAI /v1/audio/speech on 127.0.0.1:8002
 ├── start_services.sh               launch vLLM + XTTS + LiteLLM on the pod (idempotent)
 ├── restart-pod.sh                  local: start a stopped pod end-to-end (start API → SSH → services → URLs)
-└── test_endpoints.sh               smoke-test 7 European languages on the Voxtral endpoint
+└── test_endpoints.sh               smoke-test 7 European languages on the qwen-tts endpoint
 ```
 
 ## Deploying from scratch
@@ -283,7 +289,7 @@ See [`versions.lock.json`](versions.lock.json) for the full lockfile. Key pins:
 | `torchaudio`/`torchvision` | 2.10.0 / 0.25.0 | Match torch |
 | `transformers` | 4.57.6 | Compatible with vllm 0.18 |
 | `flashinfer-python`/`flashinfer-cubin` | 0.6.6 / 0.6.6 | Both must match — newer cubin (0.6.8) refuses to load against 0.6.6 python |
-| `mistral_common` | ≥ 1.10 | Required by vllm-omni for the Voxtral tokenizer parser |
+| `mistral_common` | ≥ 1.10 | Required by vllm-omni for tokenizer parsers (originally for Voxtral, kept for Qwen) |
 | `huggingface_hub[cli]` | < 1.0 | `transformers 4.57` hard-requires `<1.0`; the 1.x release ships a different CLI shape |
 | `litellm[proxy]` | 1.83.x | Any recent should work; 1.83.14 verified |
 
@@ -303,7 +309,7 @@ Apt packages: `python3.10-venv python3.10-dev build-essential ffmpeg libsndfile1
 | `vLLM did NOT become healthy` after 15 min | Stage-1 (audio decoder) init genuinely failed | `tail /workspace/logs/vllm.log` and grep for the actual error; restart with `start_services.sh` |
 | LiteLLM returns 401 `invalid api key` | Bearer token isn't in the `VOXTRAL_KEY_*` allowlist | Use `$VOXTRAL_KEY_OWNER` (or `$VOXTRAL_KEY_COLLEAGUE`); the master key alone won't work on `/v1/audio/speech` by design |
 | LiteLLM returns 401 `missing api key` | No `Authorization: Bearer …` header at all | Add the header |
-| Audio file is 0 bytes / WAV without RIFF header | Bad voice name | Pick from the 20 listed above (Voxtral) or the basenames in `/workspace/xtts_voices/` (XTTS) |
+| Audio file is 0 bytes / WAV without RIFF header | Bad voice name | Pick from the 9 listed above (Qwen) or the basenames in `/workspace/xtts_voices/` (XTTS) |
 | `HTTP 403, error code: 1010` from the public proxy URL | Cloudflare in front of `*.proxy.runpod.net` rejects `Python-urllib/*` UA | Send any non-default `User-Agent` header (curl works out of the box; `generate-murmure-samples.py` already sets one) |
 | XTTS health check passes but `/v1/voices` 404s | The RunPod base image runs an `nginx` on port 8001 that 200s `/health` blindly. We bind XTTS to **8002** instead — make sure your `litellm_config.yaml` and `start_services.sh` agree | Already done in this repo; only matters if you fork |
 | `ImportError: cannot import name 'isin_mps_friendly' from 'transformers.pytorch_utils'` | XTTS install pulled `transformers 5.x`, but coqui-tts 0.27 only works with 4.x | `install_xtts.sh` pins `transformers>=4.46,<5` |
@@ -312,7 +318,8 @@ Apt packages: `python3.10-venv python3.10-dev build-essential ffmpeg libsndfile1
 
 ## Credits
 
-- **[Mistral AI](https://mistral.ai/news/voxtral-tts)** for releasing Voxtral with open weights and reference voices.
+- **[Alibaba Qwen team](https://github.com/QwenLM/Qwen3-TTS)** for releasing Qwen3-TTS under Apache 2.0.
+- **[Mistral AI](https://mistral.ai/news/voxtral-tts)** for the original Voxtral-4B-TTS-2603 (the recipe's first iteration; weights stay on disk for fallback).
 - **[vLLM-Omni](https://github.com/vllm-project/vllm-omni)** team — Han Gao, Hongsheng Liu, Roger Wang, Yueqian Lin — for the audio-capable vLLM fork that makes `/v1/audio/speech` possible.
 - **[BerriAI/LiteLLM](https://github.com/BerriAI/LiteLLM)** for the OpenAI-shaped proxy.
 - **[RunPod](https://runpod.io/)** for the GPU billing-by-the-second + HTTPS proxy that makes single-pod hosting viable.
@@ -320,5 +327,6 @@ Apt packages: `python3.10-venv python3.10-dev build-essential ffmpeg libsndfile1
 ## License
 
 - Scripts in this repository: **MIT** (see [LICENSE](LICENSE)).
-- The Voxtral-4B-TTS-2603 model and its 20 voice presets, retrieved at runtime from HuggingFace, are licensed **CC BY-NC 4.0** by Mistral AI. **Use is non-commercial only.** This repo neither redistributes nor relicenses the model.
-- Coqui XTTS v2, retrieved at runtime by `coqui-tts`, is licensed **CPML (Coqui Public Model License) — non-commercial only**. Same constraint as Voxtral. Reference audio you upload to `/workspace/xtts_voices/` is yours; the cloned output inherits the CPML restriction.
+- **Qwen3-TTS-12Hz-1.7B-CustomVoice** (the live default for `qwen-tts`), retrieved at runtime from HuggingFace, is licensed **Apache 2.0** by Alibaba Cloud. Commercial use is allowed.
+- **Coqui XTTS v2** (the `xtts-clone` model), retrieved at runtime by `coqui-tts`, is licensed **CPML (Coqui Public Model License) — non-commercial only**. Reference audio you upload to `/workspace/xtts_voices/` is yours; the cloned output inherits the CPML restriction. If you need commercial-grade cloning under Apache 2.0, switch the proxy to `Qwen/Qwen3-TTS-12Hz-1.7B-Base`.
+- **Voxtral-4B-TTS-2603** (the historical default, no longer the live config) is licensed **CC BY-NC 4.0** by Mistral AI — non-commercial only. The download script + start_services bindings can be reverted from git history if you need it.
