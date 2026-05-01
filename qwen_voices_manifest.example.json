@@ -1,0 +1,43 @@
+{
+  "_comment": "Schema for /workspace/qwen_voices/manifest.json on the pod. The real manifest is local-only (it embeds your reference transcripts, which are usually proprietary marketing copy). Each entry maps a voice ID like 'fr_grand_public' to the reference audio path on the pod (≤25 s mono MP3) plus the matching transcript and Qwen language token. qwen_clone_proxy.py reads this file at startup. To add a voice: drop the audio at /workspace/qwen_voices/<id>.mp3, append an entry here, restart the proxy.",
+  "fr_grand_public": {
+    "audio_path": "/workspace/qwen_voices/fr_grand_public.mp3",
+    "language": "French",
+    "ref_text": "<full transcript of fr_grand_public.mp3 — same text the speaker actually says, ideally exactly>"
+  },
+  "fr_ados": {
+    "audio_path": "/workspace/qwen_voices/fr_ados.mp3",
+    "language": "French",
+    "ref_text": "<full transcript of fr_ados.mp3>"
+  },
+  "de_grand_public": {
+    "audio_path": "/workspace/qwen_voices/de_grand_public.mp3",
+    "language": "German",
+    "ref_text": "<full transcript of de_grand_public.mp3>"
+  },
+  "es_grand_public": {
+    "audio_path": "/workspace/qwen_voices/es_grand_public.mp3",
+    "language": "Spanish",
+    "ref_text": "<full transcript>"
+  },
+  "it_grand_public": {
+    "audio_path": "/workspace/qwen_voices/it_grand_public.mp3",
+    "language": "Italian",
+    "ref_text": "<full transcript>"
+  },
+  "en_grand_public": {
+    "audio_path": "/workspace/qwen_voices/en_grand_public.mp3",
+    "language": "English",
+    "ref_text": "<full transcript>"
+  },
+  "ja_grand_public": {
+    "audio_path": "/workspace/qwen_voices/ja_grand_public.mp3",
+    "language": "Japanese",
+    "ref_text": "<full transcript>"
+  },
+  "zh_grand_public": {
+    "audio_path": "/workspace/qwen_voices/zh_grand_public.mp3",
+    "language": "Chinese",
+    "ref_text": "<full transcript>"
+  }
+}

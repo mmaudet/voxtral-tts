@@ -89,21 +89,27 @@ print("librosa:", v("librosa"))
 print("soundfile:", v("soundfile"))
 PY
 
-# Patch vllm-omni's per-stage YAML caps so two TTS models fit on one GPU.
+# Patch vllm-omni's per-stage YAML caps so 3 TTS models fit on one 48 GB GPU.
 # vllm-omni overrides the CLI `--gpu-memory-utilization` flag with hardcoded
-# YAML defaults (Voxtral S0=0.8, Qwen S0=0.3); without lowering them, two
-# 2-stage models OOM during CUDA graph capture. We size for ~50% of a 48 GB
-# card per model: Voxtral S0=0.30 + S1=0.05, Qwen S0=0.15 + S1=0.15.
-echo "=== [9/8] cap per-stage GPU memory in vllm-omni YAMLs (dual-model fit) ==="
+# YAML defaults (Voxtral S0=0.8, Qwen S0=0.3); without lowering them, two or
+# three 2-stage models OOM during CUDA graph capture. Sized for:
+#   Voxtral   S0=0.20 + S1=0.05  ≈ 12 GiB  (model 7.8 GiB + KV)
+#   Qwen-CV   S0=0.10 + S1=0.10  ≈ 10 GiB
+#   Qwen-Base S0=0.10 + S1=0.10  ≈ 10 GiB  (same YAML as Qwen-CV)
+#   total                       ≈ 32 GiB / 48 GiB → ~16 GiB margin
+echo "=== [9/8] cap per-stage GPU memory in vllm-omni YAMLs (3-model fit) ==="
 YAML_DIR=/workspace/voxtral-env/lib/python3.10/site-packages/vllm_omni/model_executor/stage_configs
 if [ -f "$YAML_DIR/voxtral_tts.yaml" ]; then
   cp -n "$YAML_DIR/voxtral_tts.yaml" "$YAML_DIR/voxtral_tts.yaml.orig"
-  sed -i 's/gpu_memory_utilization: 0.8/gpu_memory_utilization: 0.30/' "$YAML_DIR/voxtral_tts.yaml"
+  sed -i 's/gpu_memory_utilization: 0.8/gpu_memory_utilization: 0.20/' "$YAML_DIR/voxtral_tts.yaml"
   sed -i 's/gpu_memory_utilization: 0.1/gpu_memory_utilization: 0.05/' "$YAML_DIR/voxtral_tts.yaml"
 fi
+# qwen3_tts.yaml is shared between Qwen3-TTS-CustomVoice and Qwen3-TTS-Base
+# (same backbone architecture, different fine-tuning). Lower both stages.
 if [ -f "$YAML_DIR/qwen3_tts.yaml" ]; then
   cp -n "$YAML_DIR/qwen3_tts.yaml" "$YAML_DIR/qwen3_tts.yaml.orig"
-  sed -i 's/gpu_memory_utilization: 0.3/gpu_memory_utilization: 0.15/' "$YAML_DIR/qwen3_tts.yaml"
+  sed -i 's/gpu_memory_utilization: 0.3/gpu_memory_utilization: 0.10/' "$YAML_DIR/qwen3_tts.yaml"
+  sed -i 's/gpu_memory_utilization: 0.2/gpu_memory_utilization: 0.10/' "$YAML_DIR/qwen3_tts.yaml"
 fi
 echo "Voxtral caps:"; grep gpu_memory_utilization "$YAML_DIR/voxtral_tts.yaml" 2>/dev/null
 echo "Qwen caps:";    grep gpu_memory_utilization "$YAML_DIR/qwen3_tts.yaml"   2>/dev/null

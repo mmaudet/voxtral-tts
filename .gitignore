@@ -7,7 +7,8 @@
 runpod-pod-info.json
 
 # Personal/local notes — anything ending in `.local.<ext>` stays out of git
-# (e.g. keys.local.md, scratch.local.txt, debug.local.json)
+# (e.g. keys.local.md, scratch.local.txt, debug.local.json,
+#       qwen_voices_manifest.local.json with brand transcripts)
 *.local.*
 
 # Personal one-off generators (contain brand/marketing copy, not generic recipe)

@@ -1,26 +1,31 @@
 model_list:
   - model_name: voxtral-tts
     litellm_params:
-      # Voxtral-4B-TTS-2603 (Mistral, CC BY-NC 4.0). Native FR/DE/ES/IT/NL/PT/HI/AR
-      # voices — best quality for European languages. Loopback only.
+      # Voxtral-4B-TTS-2603 (Mistral, CC BY-NC 4.0). Native EU voices on :8003.
       model: openai/mistralai/Voxtral-4B-TTS-2603
       api_base: http://localhost:8003/v1
       api_key: none
   - model_name: qwen-tts
     litellm_params:
-      # Qwen3-TTS-12Hz-1.7B-CustomVoice (Apache 2.0). Best for ZH/JA/KO and the
-      # only commercial-friendly preset-voice path. Loopback only.
+      # Qwen3-TTS-12Hz-1.7B-CustomVoice (Apache 2.0). 9 preset voices on :8000.
       model: openai/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
       api_base: http://localhost:8000/v1
       api_key: none
+  - model_name: qwen-clone
+    litellm_params:
+      # qwen-clone routes through /workspace/qwen_clone_proxy.py on :8005,
+      # not directly at vllm-Base. The proxy translates voice="<manifest_key>"
+      # into Qwen-Base's task_type=Base + ref_audio + ref_text + language —
+      # fields LiteLLM strips because they're not in OpenAI's /v1/audio/speech
+      # schema. Manifest at /workspace/qwen_voices/manifest.json.
+      model: openai/qwen-clone
+      api_base: http://localhost:8005/v1
+      api_key: none
 
 general_settings:
-  # The master key bypasses custom_auth entirely — keep it private. Read from
-  # environment so it never lives in the YAML or a git-tracked file.
   master_key: os.environ/VOXTRAL_LITELLM_MASTER_KEY
-  # Per-user pre-shared keys (no database). See auth.py for the allowlist.
   custom_auth: auth.user_api_key_auth
 
 litellm_settings:
   drop_params: false
-  request_timeout: 120
+  request_timeout: 180

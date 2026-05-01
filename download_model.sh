@@ -1,6 +1,7 @@
 #!/bin/bash
-# Downloads Voxtral-4B-TTS-2603 to /workspace/models/. Idempotent.
-# Requires HF_TOKEN in env.
+# Downloads the 3 TTS models used by start_services.sh into /workspace/models.
+# Idempotent — `hf download` is a no-op if files already exist.
+# Requires HF_TOKEN exported (sourced from /proc/1/environ if not in shell env).
 
 set -euo pipefail
 exec > >(tee -a /workspace/logs/download.log) 2>&1
@@ -18,20 +19,28 @@ fi
 # shellcheck disable=SC1091
 source /workspace/voxtral-env/bin/activate
 
-MODEL_DIR=/workspace/models/Qwen3-TTS-12Hz-1.7B-CustomVoice
-mkdir -p "$MODEL_DIR"
+mkdir -p /workspace/models
 
-# Qwen3-TTS-12Hz-1.7B-CustomVoice — Apache 2.0, replaces Voxtral.
-# `huggingface-cli` was renamed to `hf` in recent huggingface_hub versions.
-# (huggingface_hub 0.x — pinned <1.0 elsewhere — has no `--format` flag, so
-# we just let it print progress to the log.)
-hf download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
-  --local-dir "$MODEL_DIR" \
-  --token "$HF_TOKEN"
+pull() {
+  local repo="$1" local_dir="$2"
+  echo "→ $repo → $local_dir"
+  mkdir -p "$local_dir"
+  hf download "$repo" --local-dir "$local_dir" --token "$HF_TOKEN"
+}
+
+# Voxtral (~8 GB, CC BY-NC 4.0)
+pull mistralai/Voxtral-4B-TTS-2603 /workspace/models/Voxtral-4B-TTS-2603
+
+# Qwen3-TTS-CustomVoice (~4 GB, Apache 2.0, preset voices)
+pull Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice /workspace/models/Qwen3-TTS-12Hz-1.7B-CustomVoice
+
+# Qwen3-TTS-Base (~4 GB, Apache 2.0, voice cloning)
+pull Qwen/Qwen3-TTS-12Hz-1.7B-Base /workspace/models/Qwen3-TTS-12Hz-1.7B-Base
 
 echo "=== model layout ==="
-ls -lh "$MODEL_DIR"
-echo "=== files (top by size) ==="
-ls -lhS "$MODEL_DIR/" | head -10
+for d in Voxtral-4B-TTS-2603 Qwen3-TTS-12Hz-1.7B-CustomVoice Qwen3-TTS-12Hz-1.7B-Base; do
+  echo "--- $d ---"
+  du -sh "/workspace/models/$d" 2>/dev/null
+done
 
 echo "=== DOWNLOAD OK: $(date -u +%FT%TZ) ==="

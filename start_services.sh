@@ -1,15 +1,14 @@
 #!/bin/bash
-# Starts vLLM-Omni × 2 (Voxtral on :8003, Qwen3-TTS on :8000) and the LiteLLM
-# proxy (:4000) in background. Idempotent: skips a service that's already healthy.
+# Starts 3 vLLM-Omni instances + LiteLLM proxy, sequentially:
+#   :8003  Voxtral-4B-TTS-2603         (CC BY-NC, native EU voices)
+#   :8000  Qwen3-TTS-12Hz-1.7B-CustomVoice  (Apache 2.0, 9 presets)
+#   :8004  Qwen3-TTS-12Hz-1.7B-Base    (Apache 2.0, voice cloning via ref_audio)
+#   :4000  LiteLLM proxy with 3 model aliases (voxtral-tts, qwen-tts, qwen-clone)
 #
-# Both vLLM instances cap their --gpu-memory-utilization so they coexist on
-# one GPU. NOTE: vllm-omni applies the cap per-stage (Stage-0 + Stage-1), so
-# the *peak* allocation per model is roughly 2× the flag value. On a 48 GB
-# card we use:
-#   Voxtral  0.20  ≈ 9 GiB / stage  → ~18 GiB peak (model 7.8 + KV)
-#   Qwen-TTS 0.15  ≈ 7 GiB / stage  → ~14 GiB peak
-# Sequential boot (Voxtral first → healthy → then Qwen) further avoids the
-# CUDA-graph-capture overlap that triggers OOM during init.
+# vLLM-Omni overrides the CLI --gpu-memory-utilization with hardcoded YAML
+# caps; install_voxtral.sh patches the YAMLs down so 3 models fit on a 48 GB
+# card (Voxtral 0.20+0.05 = 12 GiB, Qwen-CV 0.10+0.10 = 10 GiB,
+# Qwen-Base 0.10+0.10 = 10 GiB → ~32 GiB total, ~16 GiB margin).
 
 set -euo pipefail
 mkdir -p /workspace/logs
@@ -27,10 +26,9 @@ fi
 source /workspace/voxtral-env/bin/activate
 
 # ── helper ────────────────────────────────────────────────────────────────────
-# start_vllm <label> <port> <model-path> <served-model-name> <gpu-mem-util> [extra-args…]
 start_vllm() {
-  local label="$1" port="$2" model_path="$3" served_name="$4" gpu_mem="$5"
-  shift 5
+  local label="$1" port="$2" model_path="$3" served_name="$4"
+  shift 4
   local log="/workspace/logs/vllm-${label}.log"
 
   if curl -sf "http://localhost:${port}/health" >/dev/null 2>&1; then
@@ -38,21 +36,17 @@ start_vllm() {
     return 0
   fi
   echo "Starting vLLM[${label}] on :${port}..."
-  # Bind to loopback only — the public RunPod proxy URL on this port will 502
-  # since CUDA-net can't reach 127.0.0.1. All inference must go through LiteLLM.
   nohup vllm serve "$model_path" \
     --omni \
     --port "$port" \
     --host 127.0.0.1 \
     --dtype bfloat16 \
     --served-model-name "$served_name" \
-    --gpu-memory-utilization "$gpu_mem" \
     "$@" \
     > "$log" 2>&1 &
   echo "  vLLM[${label}] PID: $!"
 }
 
-# wait_health <label> <port> <iters> <sleep>  — polls /health until 200 or exhausted
 wait_health() {
   local label="$1" port="$2" iters="$3" sleep_s="$4"
   echo "Waiting for vLLM[${label}] /health (up to $((iters*sleep_s))s)..."
@@ -68,25 +62,48 @@ wait_health() {
   return 1
 }
 
-# ── 1. boot vLLM instances sequentially ──────────────────────────────────────
-# Sequential to avoid contention during CUDA graph capture (parallel boot
-# triggered OOM with two 2-stage vllm-omni engines competing for the same
-# GPU). Voxtral first because it has the bigger KV-cache footprint.
+# ── 1. boot 3 vLLM instances sequentially ─────────────────────────────────────
+# Voxtral first (largest KV footprint), then the two Qwen variants.
 
-# Voxtral-4B-TTS-2603 (CC BY-NC) — best for EU languages with native voices
 start_vllm voxtral 8003 \
   /workspace/models/Voxtral-4B-TTS-2603 \
   mistralai/Voxtral-4B-TTS-2603 \
-  0.20 \
   --max-model-len 4096
 wait_health voxtral 8003 180 5
 
-# Qwen3-TTS-12Hz-1.7B-CustomVoice (Apache 2.0) — best for ZH/JA/KO + commercial
 start_vllm qwen 8000 \
   /workspace/models/Qwen3-TTS-12Hz-1.7B-CustomVoice \
-  Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
-  0.15
+  Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
 wait_health qwen 8000 180 5
+
+start_vllm qwen-clone 8004 \
+  /workspace/models/Qwen3-TTS-12Hz-1.7B-Base \
+  Qwen/Qwen3-TTS-12Hz-1.7B-Base \
+  --allowed-local-media-path /workspace/qwen_voices
+wait_health qwen-clone 8004 180 5
+
+# ── 1.5 qwen_clone_proxy ──────────────────────────────────────────────────────
+# Tiny FastAPI proxy on :8005 that maps `voice: "<manifest_key>"` into
+# Qwen-Base's task_type=Base / ref_audio / ref_text / language combo. LiteLLM's
+# aspeech() strips those fields when it sees a `model:` alias, so we go
+# through this proxy instead of pointing the alias straight at :8004.
+if [ -f /workspace/qwen_clone_proxy.py ]; then
+  if curl -sf http://127.0.0.1:8005/health >/dev/null 2>&1; then
+    echo "qwen_clone_proxy already up on :8005 — skipping start"
+  else
+    echo "Starting qwen_clone_proxy..."
+    nohup python3 /workspace/qwen_clone_proxy.py \
+      > /workspace/logs/qwen-clone-proxy.log 2>&1 &
+    echo "  qwen_clone_proxy PID: $!"
+  fi
+  for i in $(seq 1 30); do
+    if curl -sf http://127.0.0.1:8005/health >/dev/null 2>&1; then
+      echo "  qwen_clone_proxy healthy after $((i*2))s"
+      break
+    fi
+    sleep 2
+  done
+fi
 
 # ── 2. LiteLLM ────────────────────────────────────────────────────────────────
 if curl -sf http://localhost:4000/health/liveliness >/dev/null 2>&1 \
@@ -94,10 +111,6 @@ if curl -sf http://localhost:4000/health/liveliness >/dev/null 2>&1 \
   echo "LiteLLM already up on :4000 — skipping start"
 else
   echo "Starting LiteLLM..."
-  # Source the per-pod LiteLLM secrets file (master key + virtual keys).
-  # Pushed onto the pod by restart-pod.sh from the local .voxtral.env.
-  # auth.py lives in /workspace, so PYTHONPATH must include it for
-  # `custom_auth: auth.user_api_key_auth` to resolve.
   if [ -r /workspace/.litellm.env ]; then
     # shellcheck disable=SC1091
     source /workspace/.litellm.env
@@ -123,4 +136,5 @@ done
 echo "=== SERVICES READY ==="
 echo "  voxtral-tts → http://localhost:8003/v1 (loopback)"
 echo "  qwen-tts    → http://localhost:8000/v1 (loopback)"
+echo "  qwen-clone  → http://localhost:8004/v1 (loopback)"
 echo "  LiteLLM     → http://localhost:4000/v1/audio/speech (Bearer \$VOXTRAL_KEY_*)"
