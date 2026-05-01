@@ -1,6 +1,15 @@
 #!/bin/bash
-# Starts vLLM (port 8000) and LiteLLM proxy (port 4000) in background.
-# Idempotent: skips start if a healthy service is already running.
+# Starts vLLM-Omni × 2 (Voxtral on :8003, Qwen3-TTS on :8000) and the LiteLLM
+# proxy (:4000) in background. Idempotent: skips a service that's already healthy.
+#
+# Both vLLM instances cap their --gpu-memory-utilization so they coexist on
+# one GPU. NOTE: vllm-omni applies the cap per-stage (Stage-0 + Stage-1), so
+# the *peak* allocation per model is roughly 2× the flag value. On a 48 GB
+# card we use:
+#   Voxtral  0.20  ≈ 9 GiB / stage  → ~18 GiB peak (model 7.8 + KV)
+#   Qwen-TTS 0.15  ≈ 7 GiB / stage  → ~14 GiB peak
+# Sequential boot (Voxtral first → healthy → then Qwen) further avoids the
+# CUDA-graph-capture overlap that triggers OOM during init.
 
 set -euo pipefail
 mkdir -p /workspace/logs
@@ -17,75 +26,69 @@ fi
 # shellcheck disable=SC1091
 source /workspace/voxtral-env/bin/activate
 
-# --- vLLM ---
-if curl -sf http://localhost:8000/health >/dev/null 2>&1; then
-  echo "vLLM already healthy on :8000 — skipping start"
-else
-  echo "Starting vLLM..."
-  # Bind to loopback only: LiteLLM (same container) reaches it via localhost,
-  # but RunPod's external HTTPS proxy can't connect → the public 8000 URL
-  # `https://<pod-id>-8000.proxy.runpod.net` returns 502 even though the port
-  # is declared in the pod metadata. All inference must go through LiteLLM.
-  #
-  # Qwen3-TTS-12Hz-1.7B-CustomVoice (Apache 2.0) replaces Voxtral here. Same
-  # vllm-omni 0.18 binary, different model + parser. Voxtral weights stay on
-  # disk under /workspace/models/Voxtral-4B-TTS-2603 in case of rollback.
-  nohup vllm serve /workspace/models/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+# ── helper ────────────────────────────────────────────────────────────────────
+# start_vllm <label> <port> <model-path> <served-model-name> <gpu-mem-util> [extra-args…]
+start_vllm() {
+  local label="$1" port="$2" model_path="$3" served_name="$4" gpu_mem="$5"
+  shift 5
+  local log="/workspace/logs/vllm-${label}.log"
+
+  if curl -sf "http://localhost:${port}/health" >/dev/null 2>&1; then
+    echo "vLLM[${label}] already healthy on :${port} — skipping start"
+    return 0
+  fi
+  echo "Starting vLLM[${label}] on :${port}..."
+  # Bind to loopback only — the public RunPod proxy URL on this port will 502
+  # since CUDA-net can't reach 127.0.0.1. All inference must go through LiteLLM.
+  nohup vllm serve "$model_path" \
     --omni \
-    --port 8000 \
+    --port "$port" \
     --host 127.0.0.1 \
     --dtype bfloat16 \
-    --served-model-name Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
-    > /workspace/logs/vllm.log 2>&1 &
-  echo "vLLM PID: $!"
-fi
+    --served-model-name "$served_name" \
+    --gpu-memory-utilization "$gpu_mem" \
+    "$@" \
+    > "$log" 2>&1 &
+  echo "  vLLM[${label}] PID: $!"
+}
 
-# --- wait for vLLM health (up to 15 min — vllm-omni's 2-stage engine
-#     plus first-time CUDAGraph capture / flashinfer JIT can take 5-10 min) ---
-echo "Waiting for vLLM /health..."
-for i in $(seq 1 180); do
-  if curl -sf http://localhost:8000/health >/dev/null 2>&1; then
-    echo "vLLM healthy after $((i*5))s"
-    break
-  fi
-  sleep 5
-done
-curl -sf http://localhost:8000/health >/dev/null || { echo "vLLM did NOT become healthy"; tail -50 /workspace/logs/vllm.log; exit 1; }
-
-# --- XTTS v2 (voice cloning, optional) ---
-# Skipped silently if /workspace/xtts-env hasn't been created (i.e.
-# install_xtts.sh hasn't been run on this pod). LiteLLM still boots without it.
-# 8002 picked instead of 8001 because the RunPod base image runs an nginx on
-# 8001 that returns 200 to any /health probe — false positives confuse the
-# `already up` check.
-if [ -d /workspace/xtts-env ] && [ -f /workspace/xtts_server.py ]; then
-  # Check for an *xtts-specific* route, not just /health (which any nginx
-  # could 200 on). /v1/voices is the cheapest XTTS-only endpoint.
-  if curl -sf http://127.0.0.1:8002/v1/voices >/dev/null 2>&1; then
-    echo "XTTS already up on :8002 — skipping start"
-  else
-    echo "Starting XTTS server..."
-    nohup bash -c '
-      source /workspace/xtts-env/bin/activate
-      export COQUI_TOS_AGREED=1
-      export TTS_HOME=/workspace/xtts_models
-      exec python /workspace/xtts_server.py
-    ' > /workspace/logs/xtts.log 2>&1 &
-    echo "XTTS PID: $!"
-  fi
-
-  # XTTS first-load is fast (~30 s) since the model lives on the volume already
-  echo "Waiting for XTTS /health..."
-  for i in $(seq 1 60); do
-    if curl -sf http://127.0.0.1:8002/health >/dev/null 2>&1; then
-      echo "XTTS healthy after $((i*2))s"
-      break
+# wait_health <label> <port> <iters> <sleep>  — polls /health until 200 or exhausted
+wait_health() {
+  local label="$1" port="$2" iters="$3" sleep_s="$4"
+  echo "Waiting for vLLM[${label}] /health (up to $((iters*sleep_s))s)..."
+  for ((i=1; i<=iters; i++)); do
+    if curl -sf "http://localhost:${port}/health" >/dev/null 2>&1; then
+      echo "  vLLM[${label}] healthy after $((i*sleep_s))s"
+      return 0
     fi
-    sleep 2
+    sleep "$sleep_s"
   done
-fi
+  echo "vLLM[${label}] did NOT become healthy"
+  tail -60 "/workspace/logs/vllm-${label}.log"
+  return 1
+}
 
-# --- LiteLLM ---
+# ── 1. boot vLLM instances sequentially ──────────────────────────────────────
+# Sequential to avoid contention during CUDA graph capture (parallel boot
+# triggered OOM with two 2-stage vllm-omni engines competing for the same
+# GPU). Voxtral first because it has the bigger KV-cache footprint.
+
+# Voxtral-4B-TTS-2603 (CC BY-NC) — best for EU languages with native voices
+start_vllm voxtral 8003 \
+  /workspace/models/Voxtral-4B-TTS-2603 \
+  mistralai/Voxtral-4B-TTS-2603 \
+  0.20 \
+  --max-model-len 4096
+wait_health voxtral 8003 180 5
+
+# Qwen3-TTS-12Hz-1.7B-CustomVoice (Apache 2.0) — best for ZH/JA/KO + commercial
+start_vllm qwen 8000 \
+  /workspace/models/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+  Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+  0.15
+wait_health qwen 8000 180 5
+
+# ── 2. LiteLLM ────────────────────────────────────────────────────────────────
 if curl -sf http://localhost:4000/health/liveliness >/dev/null 2>&1 \
    || curl -sf http://localhost:4000/health >/dev/null 2>&1; then
   echo "LiteLLM already up on :4000 — skipping start"
@@ -93,8 +96,8 @@ else
   echo "Starting LiteLLM..."
   # Source the per-pod LiteLLM secrets file (master key + virtual keys).
   # Pushed onto the pod by restart-pod.sh from the local .voxtral.env.
-  # `auth.py` lives next to litellm_config.yaml in /workspace, so PYTHONPATH
-  # must include /workspace for `custom_auth: auth.user_api_key_auth` to resolve.
+  # auth.py lives in /workspace, so PYTHONPATH must include it for
+  # `custom_auth: auth.user_api_key_auth` to resolve.
   if [ -r /workspace/.litellm.env ]; then
     # shellcheck disable=SC1091
     source /workspace/.litellm.env
@@ -108,7 +111,6 @@ else
   echo "LiteLLM PID: $!"
 fi
 
-# --- wait for LiteLLM ---
 for i in $(seq 1 30); do
   if curl -sf http://localhost:4000/health/liveliness >/dev/null 2>&1 \
      || curl -sf http://localhost:4000/health >/dev/null 2>&1; then
@@ -119,5 +121,6 @@ for i in $(seq 1 30); do
 done
 
 echo "=== SERVICES READY ==="
-echo "vLLM:    http://localhost:8000/v1/audio/speech"
-echo "LiteLLM: http://localhost:4000/v1/audio/speech (model=voxtral-tts, key=sk-voxtral-local)"
+echo "  voxtral-tts → http://localhost:8003/v1 (loopback)"
+echo "  qwen-tts    → http://localhost:8000/v1 (loopback)"
+echo "  LiteLLM     → http://localhost:4000/v1/audio/speech (Bearer \$VOXTRAL_KEY_*)"

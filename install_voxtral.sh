@@ -89,4 +89,23 @@ print("librosa:", v("librosa"))
 print("soundfile:", v("soundfile"))
 PY
 
+# Patch vllm-omni's per-stage YAML caps so two TTS models fit on one GPU.
+# vllm-omni overrides the CLI `--gpu-memory-utilization` flag with hardcoded
+# YAML defaults (Voxtral S0=0.8, Qwen S0=0.3); without lowering them, two
+# 2-stage models OOM during CUDA graph capture. We size for ~50% of a 48 GB
+# card per model: Voxtral S0=0.30 + S1=0.05, Qwen S0=0.15 + S1=0.15.
+echo "=== [9/8] cap per-stage GPU memory in vllm-omni YAMLs (dual-model fit) ==="
+YAML_DIR=/workspace/voxtral-env/lib/python3.10/site-packages/vllm_omni/model_executor/stage_configs
+if [ -f "$YAML_DIR/voxtral_tts.yaml" ]; then
+  cp -n "$YAML_DIR/voxtral_tts.yaml" "$YAML_DIR/voxtral_tts.yaml.orig"
+  sed -i 's/gpu_memory_utilization: 0.8/gpu_memory_utilization: 0.30/' "$YAML_DIR/voxtral_tts.yaml"
+  sed -i 's/gpu_memory_utilization: 0.1/gpu_memory_utilization: 0.05/' "$YAML_DIR/voxtral_tts.yaml"
+fi
+if [ -f "$YAML_DIR/qwen3_tts.yaml" ]; then
+  cp -n "$YAML_DIR/qwen3_tts.yaml" "$YAML_DIR/qwen3_tts.yaml.orig"
+  sed -i 's/gpu_memory_utilization: 0.3/gpu_memory_utilization: 0.15/' "$YAML_DIR/qwen3_tts.yaml"
+fi
+echo "Voxtral caps:"; grep gpu_memory_utilization "$YAML_DIR/voxtral_tts.yaml" 2>/dev/null
+echo "Qwen caps:";    grep gpu_memory_utilization "$YAML_DIR/qwen3_tts.yaml"   2>/dev/null
+
 echo "=== ALL INSTALLED OK: $(date -u +%FT%TZ) ==="
