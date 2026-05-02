@@ -1,23 +1,28 @@
 model_list:
-  - model_name: voxtral-tts
-    litellm_params:
-      # Voxtral-4B-TTS-2603 (Mistral, CC BY-NC 4.0). Native EU voices on :8003.
-      model: openai/mistralai/Voxtral-4B-TTS-2603
-      api_base: http://localhost:8003/v1
-      api_key: none
-  - model_name: qwen-tts
-    litellm_params:
-      # Qwen3-TTS-12Hz-1.7B-CustomVoice (Apache 2.0). 9 preset voices on :8000.
-      model: openai/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
-      api_base: http://localhost:8000/v1
-      api_key: none
+  # ── Default: only qwen-clone is active for fast voice-cloning throughput. ──
+  # Uncomment voxtral-tts / qwen-tts blocks below + matching launches in
+  # start_services.sh to re-enable the multi-model setup.
+
+  # - model_name: voxtral-tts
+  #   litellm_params:
+  #     # Voxtral-4B-TTS-2603 (CC BY-NC). Native EU voices on :8003.
+  #     model: openai/mistralai/Voxtral-4B-TTS-2603
+  #     api_base: http://localhost:8003/v1
+  #     api_key: none
+
+  # - model_name: qwen-tts
+  #   litellm_params:
+  #     # Qwen3-TTS-CustomVoice (Apache 2.0). 9 preset voices on :8000.
+  #     model: openai/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
+  #     api_base: http://localhost:8000/v1
+  #     api_key: none
+
   - model_name: qwen-clone
     litellm_params:
-      # qwen-clone routes through /workspace/qwen_clone_proxy.py on :8005,
-      # not directly at vllm-Base. The proxy translates voice="<manifest_key>"
-      # into Qwen-Base's task_type=Base + ref_audio + ref_text + language —
-      # fields LiteLLM strips because they're not in OpenAI's /v1/audio/speech
-      # schema. Manifest at /workspace/qwen_voices/manifest.json.
+      # Qwen3-TTS-Base (Apache 2.0). Voice cloning via /workspace/qwen_voices/.
+      # Routed through qwen_clone_proxy.py (:8005) which expands voice="<id>"
+      # into Qwen-Base's task_type=Base / ref_audio / ref_text fields that
+      # LiteLLM otherwise strips.
       model: openai/qwen-clone
       api_base: http://localhost:8005/v1
       api_key: none
@@ -28,4 +33,4 @@ general_settings:
 
 litellm_settings:
   drop_params: false
-  request_timeout: 180
+  request_timeout: 360

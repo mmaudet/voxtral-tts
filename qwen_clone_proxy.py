@@ -120,7 +120,7 @@ def speech(req: SpeechReq):
     )
     t0 = time.time()
     try:
-        with urllib.request.urlopen(request, timeout=120) as resp:
+        with urllib.request.urlopen(request, timeout=300) as resp:
             body = resp.read()
             ctype = resp.headers.get("Content-Type", "audio/wav")
     except urllib.error.HTTPError as e:

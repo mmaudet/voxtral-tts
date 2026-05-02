@@ -89,29 +89,27 @@ print("librosa:", v("librosa"))
 print("soundfile:", v("soundfile"))
 PY
 
-# Patch vllm-omni's per-stage YAML caps so 3 TTS models fit on one 48 GB GPU.
-# vllm-omni overrides the CLI `--gpu-memory-utilization` flag with hardcoded
-# YAML defaults (Voxtral S0=0.8, Qwen S0=0.3); without lowering them, two or
-# three 2-stage models OOM during CUDA graph capture. Sized for:
-#   Voxtral   S0=0.20 + S1=0.05  ≈ 12 GiB  (model 7.8 GiB + KV)
-#   Qwen-CV   S0=0.10 + S1=0.10  ≈ 10 GiB
-#   Qwen-Base S0=0.10 + S1=0.10  ≈ 10 GiB  (same YAML as Qwen-CV)
-#   total                       ≈ 32 GiB / 48 GiB → ~16 GiB margin
-echo "=== [9/8] cap per-stage GPU memory in vllm-omni YAMLs (3-model fit) ==="
+# vLLM-Omni overrides the CLI `--gpu-memory-utilization` flag with hardcoded
+# YAML defaults. The recipe's default (single-model fast path) replaces
+# qwen3_tts.yaml with the upstream-shipped batch variant qwen3_tts_batch.yaml,
+# which already has Stage 0 max_num_seqs=4 + CUDA graphs + gpu_mem 0.30/0.20.
+# This is the right config for solo Qwen-Base on a 48 GB card. The Voxtral
+# YAML is also patched (lower caps) in case the operator re-enables Voxtral
+# alongside Qwen — the original conservative caps avoid OOM in that 2-model
+# mode. The 3-model mode (with Qwen-CV) is no longer the recommended config.
+echo "=== [9/8] swap vllm-omni qwen3_tts.yaml for the batch variant ==="
 YAML_DIR=/workspace/voxtral-env/lib/python3.10/site-packages/vllm_omni/model_executor/stage_configs
+if [ -f "$YAML_DIR/qwen3_tts_batch.yaml" ]; then
+  cp -n "$YAML_DIR/qwen3_tts.yaml" "$YAML_DIR/qwen3_tts.yaml.orig"
+  cp "$YAML_DIR/qwen3_tts_batch.yaml" "$YAML_DIR/qwen3_tts.yaml"
+fi
+# Voxtral caps: keep this patch so re-enabling Voxtral is safe alongside Qwen.
 if [ -f "$YAML_DIR/voxtral_tts.yaml" ]; then
   cp -n "$YAML_DIR/voxtral_tts.yaml" "$YAML_DIR/voxtral_tts.yaml.orig"
-  sed -i 's/gpu_memory_utilization: 0.8/gpu_memory_utilization: 0.20/' "$YAML_DIR/voxtral_tts.yaml"
+  sed -i 's/gpu_memory_utilization: 0.8/gpu_memory_utilization: 0.30/' "$YAML_DIR/voxtral_tts.yaml"
   sed -i 's/gpu_memory_utilization: 0.1/gpu_memory_utilization: 0.05/' "$YAML_DIR/voxtral_tts.yaml"
 fi
-# qwen3_tts.yaml is shared between Qwen3-TTS-CustomVoice and Qwen3-TTS-Base
-# (same backbone architecture, different fine-tuning). Lower both stages.
-if [ -f "$YAML_DIR/qwen3_tts.yaml" ]; then
-  cp -n "$YAML_DIR/qwen3_tts.yaml" "$YAML_DIR/qwen3_tts.yaml.orig"
-  sed -i 's/gpu_memory_utilization: 0.3/gpu_memory_utilization: 0.10/' "$YAML_DIR/qwen3_tts.yaml"
-  sed -i 's/gpu_memory_utilization: 0.2/gpu_memory_utilization: 0.10/' "$YAML_DIR/qwen3_tts.yaml"
-fi
+echo "Qwen caps (now from qwen3_tts_batch.yaml):"; grep -E 'gpu_memory_utilization|max_num_seqs|enforce_eager' "$YAML_DIR/qwen3_tts.yaml" 2>/dev/null
 echo "Voxtral caps:"; grep gpu_memory_utilization "$YAML_DIR/voxtral_tts.yaml" 2>/dev/null
-echo "Qwen caps:";    grep gpu_memory_utilization "$YAML_DIR/qwen3_tts.yaml"   2>/dev/null
 
 echo "=== ALL INSTALLED OK: $(date -u +%FT%TZ) ==="

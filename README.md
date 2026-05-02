@@ -1,20 +1,32 @@
 # voxtral-tts
 
-Self-hostable recipe running **three TTS backends in parallel** on a single RunPod GPU, fronted by a unified LiteLLM proxy with per-user API keys:
+Self-hostable recipe for OpenAI-compatible `/v1/audio/speech` on a single RunPod GPU, fronted by LiteLLM with per-user API keys.
 
-- **`voxtral-tts`** — Mistral's `Voxtral-4B-TTS-2603` (CC BY-NC 4.0). 20 stock voices including native French / German / Spanish / Italian / Dutch / Portuguese / Hindi / Arabic. Best for European languages when a non-commercial license is acceptable.
-- **`qwen-tts`** — Alibaba's `Qwen3-TTS-12Hz-1.7B-CustomVoice` (Apache 2.0). 9 stock voices, mostly native to Mandarin / Japanese / Korean. Best for those three languages and any commercial preset-voice workflow.
-- **`qwen-clone`** — Alibaba's `Qwen3-TTS-12Hz-1.7B-Base` (Apache 2.0). **Voice cloning** from reference audio (≤25 s) + transcript. Drop your own reference voices into `/workspace/qwen_voices/<id>.mp3`, register them in a manifest, and call them by name. The recipe ships with a tiny FastAPI proxy that translates `voice: "<id>"` into Qwen-Base's `task_type=Base` / `ref_audio` / `ref_text` / `language` combo (LiteLLM otherwise strips those non-OpenAI fields).
+**Default config (fast path, recommended)**: only `qwen-clone` is active — Alibaba's `Qwen3-TTS-12Hz-1.7B-Base` (Apache 2.0) doing voice cloning from your reference audio + transcript. Configured for batch=4 with CUDA graphs (the upstream `qwen3_tts_batch.yaml`), giving ~3× the throughput of the stock single-stream config. The repo ships a tiny FastAPI proxy ([`qwen_clone_proxy.py`](qwen_clone_proxy.py)) that translates `voice: "<id>"` into Qwen-Base's `task_type=Base` / `ref_audio` / `ref_text` / `language` combo (LiteLLM strips those non-OpenAI fields, so it can't hit Qwen-Base directly).
 
-Pick a backend by setting `model` on the same OpenAI-compatible `/v1/audio/speech` endpoint.
+**Optional opt-in** (commented out by default in [`start_services.sh`](start_services.sh) and [`litellm_config.yaml`](litellm_config.yaml)):
+
+- **`voxtral-tts`** — Mistral's `Voxtral-4B-TTS-2603` (CC BY-NC 4.0). 20 stock voices including native French / German / Spanish / Italian / Dutch / Portuguese / Hindi / Arabic. Useful when a non-commercial license is acceptable and you want native EU prosody without supplying your own samples.
+- **`qwen-tts`** — Alibaba's `Qwen3-TTS-12Hz-1.7B-CustomVoice` (Apache 2.0). 9 preset voices (mostly Chinese, plus Aiden/Ryan in English, Ono_Anna JP, Sohee KR). Best when you want commercial-friendly *preset* voices for ZH/JA/KO without cloning.
+
+To re-enable either: uncomment the relevant `start_vllm` block in `start_services.sh` and the matching `model_list` entry in `litellm_config.yaml`, then `./restart-pod.sh`. Both models' weights stay on the volume; nothing to re-download.
 
 ## What you get
 
 - A single HTTPS endpoint speaking the OpenAI `/v1/audio/speech` schema, gated by per-user keys (LiteLLM with `custom_auth`, no DB).
-- Three TTS backends sharing one GPU thanks to YAML-level caps on vllm-omni's per-stage `gpu_memory_utilization` (CLI `--gpu-memory-utilization` is ignored — see [Operating notes](#operating-notes)).
-- Voice cloning under Apache 2.0: bring your own reference samples (e.g. ElevenLabs exports, anything 16+ kHz mono, **≤ 25 s** after trim) and Qwen3-TTS-Base produces same-voice output in any of its 10 languages.
-- Single-pod deployment on a 48 GB card: ~12 GB Voxtral + ~10 GB Qwen-CV + ~13 GB Qwen-Base = ~35 GB peak with cloning loaded, ~13 GB margin.
+- Voice cloning under **Apache 2.0** (Qwen3-TTS-Base): bring your own reference samples (16+ kHz mono, **≤ 25 s** after trim) and Qwen produces same-voice output in any of its 10 languages.
+- Default fast path uses one model on a 48 GB card with batch=4 + CUDA graphs (~13 GB peak, plenty of headroom). Multi-model mode available by uncommenting blocks in `start_services.sh` and `litellm_config.yaml` (no re-install needed).
 - Output: 24 kHz WAV / PCM / FLAC / MP3 / AAC / Opus.
+
+### Throughput (default fast path)
+
+| Audio length per request | Generation time @ batch=4 | Throughput |
+|---|---|---|
+| ~12 s out (~400-char text) | ~120 s | ~120 audios/h |
+| ~30 s out (~1 200-char text) | ~270 s | ~50 audios/h |
+| ~45 s out (~1 800-char text) | ~400 s | ~36 audios/h |
+
+For long audios (>~12 s out), individual requests exceed Cloudflare's 100 s timeout on `*.proxy.runpod.net`. Use [`tunnel.sh`](tunnel.sh) to route through SSH and bypass that ceiling.
 
 ## What you DON'T get
 
@@ -221,7 +233,8 @@ Then `voice: "my_voice"` is live.
 ├── start_services.sh                 sequential boot of 3 vLLM-Omni + qwen_clone_proxy + LiteLLM
 ├── qwen_clone_proxy.py               FastAPI on :8005 — translates voice="<id>" to Qwen-Base's task_type=Base
 ├── restart-pod.sh                    local: start a stopped pod end-to-end (start API → SSH → services → URLs)
-└── test_endpoints.sh                 smoke-test 7 European languages on the voxtral-tts endpoint
+├── tunnel.sh                         local: open SSH tunnel localhost:14000 → pod:4000 (bypasses Cloudflare 524 on long audios)
+└── test_endpoints.sh                 smoke-test 7 European languages on the voxtral-tts endpoint (only meaningful if voxtral-tts is enabled)
 ```
 
 ## Deploying from scratch
