@@ -14,8 +14,27 @@ echo "=== [1/8] apt deps ==="
 # (`fatal error: Python.h: No such file or directory`).
 # build-essential is needed by triton's gcc-based runtime kernel build.
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq python3.10-venv python3.10-dev build-essential ffmpeg libsndfile1 >/dev/null
+# RunPod base images run an apt-get update + several installs at first boot,
+# which can take 5-10 min. Wait for *any* apt/dpkg to clear before proceeding,
+# polling pgrep (no extra packages required). Then run our installs with the
+# native dpkg lock-wait so any tail-end contention is absorbed without erroring.
+echo "  waiting for boot apt to clear..."
+for w in $(seq 1 180); do
+  if ! pgrep -x apt-get >/dev/null 2>&1 \
+     && ! pgrep -x apt    >/dev/null 2>&1 \
+     && ! pgrep -x dpkg   >/dev/null 2>&1 \
+     && ! pgrep -x unattended-upgr >/dev/null 2>&1; then
+    echo "  boot apt clear after ${w}*5s"
+    break
+  fi
+  sleep 5
+done
+APT_OPTS="-o DPkg::Lock::Timeout=120"
+apt-get $APT_OPTS update -qq
+apt-get $APT_OPTS install -y -qq python3.10-venv python3.10-dev build-essential ffmpeg libsndfile1 >/dev/null
+dpkg -l python3.10-dev build-essential ffmpeg libsndfile1 >/dev/null 2>&1 || {
+  echo "FATAL: apt packages missing after install"; exit 1;
+}
 
 echo "=== [2/8] venv ==="
 if [ ! -d /workspace/voxtral-env ]; then
@@ -111,5 +130,19 @@ if [ -f "$YAML_DIR/voxtral_tts.yaml" ]; then
 fi
 echo "Qwen caps (now from qwen3_tts_batch.yaml):"; grep -E 'gpu_memory_utilization|max_num_seqs|enforce_eager' "$YAML_DIR/qwen3_tts.yaml" 2>/dev/null
 echo "Voxtral caps:"; grep gpu_memory_utilization "$YAML_DIR/voxtral_tts.yaml" 2>/dev/null
+
+# Faster-whisper for word-level alignment post-process. Used by the
+# /v1/audio/speech-with-alignment endpoint in qwen_clone_proxy.py.
+# ~2.6 GB VRAM at fp16, fits comfortably alongside Qwen3-TTS-Base on a 48 GB card.
+if [ "${INSTALL_WHISPER:-1}" = "1" ]; then
+  echo "=== faster-whisper for alignment ==="
+  pip install --quiet faster-whisper==1.2.0
+  python -c "
+from faster_whisper import WhisperModel
+WhisperModel('large-v3', device='cuda', compute_type='float16',
+             download_root='/workspace/models/whisper')
+print('faster-whisper large-v3 ready (cached at /workspace/models/whisper)')
+"
+fi
 
 echo "=== ALL INSTALLED OK: $(date -u +%FT%TZ) ==="
