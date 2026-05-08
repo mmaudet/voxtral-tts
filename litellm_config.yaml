@@ -1,9 +1,9 @@
 model_list:
   # ── Default: only qwen-clone is active for fast voice-cloning throughput. ──
-  # Uncomment voxtral-tts / qwen-tts blocks below + matching launches in
+  # Uncomment voice-factory / qwen-tts blocks below + matching launches in
   # start_services.sh to re-enable the multi-model setup.
 
-  # - model_name: voxtral-tts
+  # - model_name: voice-factory
   #   litellm_params:
   #     # Voxtral-4B-TTS-2603 (CC BY-NC). Native EU voices on :8003.
   #     model: openai/mistralai/Voxtral-4B-TTS-2603
@@ -28,7 +28,7 @@ model_list:
       api_key: none
 
 general_settings:
-  master_key: os.environ/VOXTRAL_LITELLM_MASTER_KEY
+  master_key: os.environ/VOICE_FACTORY_LITELLM_MASTER_KEY
   custom_auth: auth.user_api_key_auth
 
 litellm_settings:

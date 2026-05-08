@@ -1,5 +1,5 @@
 # Secrets — never commit
-.voxtral.env
+.voice-factory.env
 *.env
 !*.env.example
 

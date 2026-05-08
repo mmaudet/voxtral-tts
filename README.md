@@ -1,4 +1,4 @@
-# voxtral-tts
+# voice-factory
 
 Self-hostable recipe for OpenAI-compatible `/v1/audio/speech` on a single RunPod GPU, fronted by LiteLLM with per-user API keys.
 
@@ -6,7 +6,7 @@ Self-hostable recipe for OpenAI-compatible `/v1/audio/speech` on a single RunPod
 
 **Optional opt-in** (commented out by default in [`start_services.sh`](start_services.sh) and [`litellm_config.yaml`](litellm_config.yaml)):
 
-- **`voxtral-tts`** — Mistral's `Voxtral-4B-TTS-2603` (CC BY-NC 4.0). 20 stock voices including native French / German / Spanish / Italian / Dutch / Portuguese / Hindi / Arabic. Useful when a non-commercial license is acceptable and you want native EU prosody without supplying your own samples.
+- **`voice-factory`** — Mistral's `Voxtral-4B-TTS-2603` (CC BY-NC 4.0). 20 stock voices including native French / German / Spanish / Italian / Dutch / Portuguese / Hindi / Arabic. Useful when a non-commercial license is acceptable and you want native EU prosody without supplying your own samples.
 - **`qwen-tts`** — Alibaba's `Qwen3-TTS-12Hz-1.7B-CustomVoice` (Apache 2.0). 9 preset voices (mostly Chinese, plus Aiden/Ryan in English, Ono_Anna JP, Sohee KR). Best when you want commercial-friendly *preset* voices for ZH/JA/KO without cloning.
 
 To re-enable either: uncomment the relevant `start_vllm` block in `start_services.sh` and the matching `model_list` entry in `litellm_config.yaml`, then `./restart-pod.sh`. Both models' weights stay on the volume; nothing to re-download.
@@ -32,7 +32,7 @@ For long audios (>~12 s out), individual requests exceed Cloudflare's 100 s time
 
 - Multi-tenant routing, queueing, autoscaling — single-pod recipe.
 - Hidden license trade-offs. Voxtral is **CC BY-NC 4.0** (non-commercial). Qwen is **Apache 2.0** (commercial OK). **You** pick the right `model` per use case.
-- Native EU-language voices in `qwen-tts`. The 9 Qwen presets are mostly Chinese; for native FR/DE/ES/IT/NL/PT either use `voxtral-tts` (CC BY-NC) or clone your own EU voices into `qwen-clone` (Apache 2.0).
+- Native EU-language voices in `qwen-tts`. The 9 Qwen presets are mostly Chinese; for native FR/DE/ES/IT/NL/PT either use `voice-factory` (CC BY-NC) or clone your own EU voices into `qwen-clone` (Apache 2.0).
 - Reference audio longer than 25 s. Qwen-Base rejects clips over 30 s; the recipe trims to 25 s on upload.
 
 ## Architecture
@@ -41,7 +41,7 @@ For long audios (>~12 s out), individual requests exceed Cloudflare's 100 s time
 ┌──────────────────── RunPod pod (single GPU 48 GB, BF16) ────────────────────────┐
 │                                                                                  │
 │                                  ┌──► 127.0.0.1:8003  vllm-omni  Voxtral         │
-│   :4000  LiteLLM proxy           │                    model=voxtral-tts          │
+│   :4000  LiteLLM proxy           │                    model=voice-factory          │
 │   custom_auth (auth.py) ─────────┤                                                │
 │   N keys, no DB                  ├──► 127.0.0.1:8000  vllm-omni  Qwen3-CV        │
 │   model alias routing            │                    model=qwen-tts             │
@@ -65,7 +65,7 @@ For long audios (>~12 s out), individual requests exceed Cloudflare's 100 s time
        Public proxy:  https://<pod-id>-4000.proxy.runpod.net
 ```
 
-LiteLLM on port 4000 is the **only** externally reachable inference endpoint. All three vLLM-Omni instances and `qwen_clone_proxy.py` bind to `127.0.0.1` so the RunPod public proxy can't connect to them — every external call has to come through LiteLLM and present a valid `VOXTRAL_KEY_*`.
+LiteLLM on port 4000 is the **only** externally reachable inference endpoint. All three vLLM-Omni instances and `qwen_clone_proxy.py` bind to `127.0.0.1` so the RunPod public proxy can't connect to them — every external call has to come through LiteLLM and present a valid `VOICE_FACTORY_KEY_*`.
 
 The proxy `qwen_clone_proxy.py` exists because LiteLLM's `aspeech()` strips fields not in OpenAI's `/v1/audio/speech` schema (`task_type`, `ref_audio`, `ref_text`, `language`). The proxy reads `voice: "<id>"` from a manifest and forwards a complete cloning payload to Qwen-Base on `:8004`.
 
@@ -74,12 +74,12 @@ The proxy `qwen_clone_proxy.py` exists because LiteLLM's `aspeech()` strips fiel
 You need a [RunPod account](https://www.runpod.io/) with billing set up, a [HuggingFace token](https://huggingface.co/settings/tokens), and a 48 GB GPU pod (RTX A6000, L40, L40S, or modded 4090 48GB — the regular 4090 24GB is not enough for three models).
 
 ```bash
-git clone git@github.com:mmaudet/voxtral-tts.git
-cd voxtral-tts
+git clone git@github.com:mmaudet/voice-factory.git
+cd voice-factory
 
-cp .voxtral.env.example .voxtral.env
-chmod 600 .voxtral.env
-$EDITOR .voxtral.env   # paste RUNPOD_API_KEY, HF_TOKEN, VOXTRAL_KEY_*
+cp .voice-factory.env.example .voice-factory.env
+chmod 600 .voice-factory.env
+$EDITOR .voice-factory.env   # paste RUNPOD_API_KEY, HF_TOKEN, VOICE_FACTORY_KEY_*
 
 # Provision a 48 GB pod (see "Deploying from scratch" below for the exact API call),
 # scp the scripts + manifest, install, download, boot.
@@ -88,12 +88,12 @@ $EDITOR .voxtral.env   # paste RUNPOD_API_KEY, HF_TOKEN, VOXTRAL_KEY_*
 ## Endpoints
 
 ```bash
-# voxtral-tts: 20 native EU voices (Voxtral, CC BY-NC 4.0)
+# voice-factory: 20 native EU voices (Voxtral, CC BY-NC 4.0)
 curl -s https://<pod-id>-4000.proxy.runpod.net/v1/audio/speech \
   -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $VOXTRAL_KEY_OWNER" \
+  -H "Authorization: Bearer $VOICE_FACTORY_KEY_OWNER" \
   -d '{
-    "model": "voxtral-tts",
+    "model": "voice-factory",
     "input": "Bonjour, ceci est Voxtral en français natif.",
     "voice": "fr_male",
     "response_format": "wav"
@@ -103,7 +103,7 @@ curl -s https://<pod-id>-4000.proxy.runpod.net/v1/audio/speech \
 # qwen-tts: 9 Qwen presets (Apache 2.0, best in ZH/JA/KO)
 curl -s https://<pod-id>-4000.proxy.runpod.net/v1/audio/speech \
   -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $VOXTRAL_KEY_OWNER" \
+  -H "Authorization: Bearer $VOICE_FACTORY_KEY_OWNER" \
   -d '{
     "model": "qwen-tts",
     "input": "你好,这是 Qwen 中文测试。",
@@ -116,7 +116,7 @@ curl -s https://<pod-id>-4000.proxy.runpod.net/v1/audio/speech \
 # qwen-clone: cloned voice (Apache 2.0). `voice` is a manifest key.
 curl -s https://<pod-id>-4000.proxy.runpod.net/v1/audio/speech \
   -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $VOXTRAL_KEY_OWNER" \
+  -H "Authorization: Bearer $VOICE_FACTORY_KEY_OWNER" \
   -d '{
     "model": "qwen-clone",
     "input": "Bonjour, ceci est ma voix clonée pour mon produit.",
@@ -131,7 +131,7 @@ The `pod-id` is whatever RunPod assigns at create time. URLs survive a stop/star
 If your pod is stopped (`EXITED`) to save cost:
 
 ```bash
-./restart-pod.sh                # uses runpod-pod-info.json[voxtral-main].podId
+./restart-pod.sh                # uses runpod-pod-info.json[voice-factory-main].podId
 # or
 ./restart-pod.sh <pod-id>       # explicit
 ```
@@ -140,7 +140,7 @@ The script POSTs `/v1/pods/<id>/start`, polls until `RUNNING`, syncs the latest 
 
 ## Voices
 
-### `voxtral-tts` (Voxtral-4B-TTS-2603 — 20 presets, CC BY-NC 4.0)
+### `voice-factory` (Voxtral-4B-TTS-2603 — 20 presets, CC BY-NC 4.0)
 
 | Style / Language | Voices |
 |---|---|
@@ -221,20 +221,20 @@ Then `voice: "my_voice"` is live.
 .
 ├── README.md                         this file
 ├── LICENSE                           MIT for scripts; Voxtral is CC BY-NC, Qwen is Apache 2.0
-├── .voxtral.env.example              template for secrets — copy to .voxtral.env (gitignored)
+├── .voice-factory.env.example              template for secrets — copy to .voice-factory.env (gitignored)
 ├── .gitignore
 ├── runpod-pod-info.example.json      schema for the per-pod state file (gitignored real one)
 ├── qwen_voices_manifest.example.json schema for the qwen-clone reference manifest
 ├── versions.lock.json                exact package versions known to work
 ├── litellm_config.yaml               proxy config: 3 aliases, custom_auth → auth.py
-├── auth.py                           custom_auth: any VOXTRAL_KEY_<NAME> env var becomes a Bearer token
-├── install_voxtral.sh                install vllm-omni + LiteLLM + patch per-stage YAML caps for 3-model fit
+├── auth.py                           custom_auth: any VOICE_FACTORY_KEY_<NAME> env var becomes a Bearer token
+├── install_voice_factory.sh                install vllm-omni + LiteLLM + patch per-stage YAML caps for 3-model fit
 ├── download_model.sh                 pull all 3 models (~16 GB total) to /workspace/models
 ├── start_services.sh                 sequential boot of 3 vLLM-Omni + qwen_clone_proxy + LiteLLM
 ├── qwen_clone_proxy.py               FastAPI on :8005 — translates voice="<id>" to Qwen-Base's task_type=Base
 ├── restart-pod.sh                    local: start a stopped pod end-to-end (start API → SSH → services → URLs)
 ├── tunnel.sh                         local: open SSH tunnel localhost:14000 → pod:4000 (bypasses Cloudflare 524 on long audios)
-└── test_endpoints.sh                 smoke-test 7 European languages on the voxtral-tts endpoint (only meaningful if voxtral-tts is enabled)
+└── test_endpoints.sh                 smoke-test 7 European languages on the voice-factory endpoint (only meaningful if voice-factory is enabled)
 ```
 
 ## Deploying from scratch
@@ -242,7 +242,7 @@ Then `voice: "my_voice"` is live.
 ### 1. Provision the pod (≥ 48 GB GPU)
 
 ```bash
-source .voxtral.env
+source .voice-factory.env
 
 python3 - <<'PY' | curl -sS -X POST https://rest.runpod.io/v1/pods \
   -H "Authorization: Bearer $RUNPOD_API_KEY" \
@@ -250,7 +250,7 @@ python3 - <<'PY' | curl -sS -X POST https://rest.runpod.io/v1/pods \
   --data-binary @-
 import json, os
 print(json.dumps({
-  "name": "voxtral-main",
+  "name": "voice-factory-main",
   "imageName": "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04",
   "gpuTypeIds": ["NVIDIA RTX A6000", "NVIDIA L40", "NVIDIA L40S"],
   "gpuTypePriority": "availability",
@@ -276,13 +276,13 @@ Note: pick the *guaranteed-48GB* GPUs (A6000, L40, L40S). The plain `NVIDIA GeFo
 
 ```bash
 # from your local checkout
-scp -P <ssh_port> install_voxtral.sh download_model.sh start_services.sh \
+scp -P <ssh_port> install_voice_factory.sh download_model.sh start_services.sh \
                   litellm_config.yaml auth.py qwen_clone_proxy.py test_endpoints.sh \
                   root@<publicIp>:/workspace/
 ssh -p <ssh_port> root@<publicIp>
 cd /workspace
-chmod +x install_voxtral.sh download_model.sh start_services.sh test_endpoints.sh
-./install_voxtral.sh   # ≈ 12 min — installs vllm-omni 0.18 + LiteLLM and patches YAML caps
+chmod +x install_voice_factory.sh download_model.sh start_services.sh test_endpoints.sh
+./install_voice_factory.sh   # ≈ 12 min — installs vllm-omni 0.18 + LiteLLM and patches YAML caps
 ./download_model.sh    # ≈ 1 min — pulls all 3 models (~16 GB)
 ```
 
@@ -317,21 +317,21 @@ rm -rf "$TMPD"
 
 ```bash
 ./start_services.sh   # ≈ 10-12 min — Voxtral, Qwen-CV, Qwen-Base sequential, then proxy + LiteLLM
-./test_endpoints.sh   # smoke tests on voxtral-tts
+./test_endpoints.sh   # smoke tests on voice-factory
 ```
 
 ## Authentication
 
-LiteLLM uses [custom_auth](https://docs.litellm.ai/docs/proxy/virtual_keys#custom-auth) ([`auth.py`](auth.py)) so we hand out **multiple pre-shared keys without a database**. Every env var named `VOXTRAL_KEY_<NAME>` becomes a valid Bearer token; `<NAME>` (lowercased) becomes the LiteLLM `user_id` for log tagging.
+LiteLLM uses [custom_auth](https://docs.litellm.ai/docs/proxy/virtual_keys#custom-auth) ([`auth.py`](auth.py)) so we hand out **multiple pre-shared keys without a database**. Every env var named `VOICE_FACTORY_KEY_<NAME>` becomes a valid Bearer token; `<NAME>` (lowercased) becomes the LiteLLM `user_id` for log tagging.
 
 | Env var | Intended user |
 |---|---|
-| `VOXTRAL_KEY_OWNER` | the operator (you) |
-| `VOXTRAL_KEY_COLLEAGUE` | someone you trust to test |
+| `VOICE_FACTORY_KEY_OWNER` | the operator (you) |
+| `VOICE_FACTORY_KEY_COLLEAGUE` | someone you trust to test |
 
-Add a third (or fifth): another `VOXTRAL_KEY_<NAME>=sk-voxtral-…` in `.voxtral.env`, run `./restart-pod.sh`. To revoke: delete the line, restart. The change reaches the pod via SSH stdin (keys never touch git, never appear in `ps`).
+Add a third (or fifth): another `VOICE_FACTORY_KEY_<NAME>=sk-voxtral-…` in `.voice-factory.env`, run `./restart-pod.sh`. To revoke: delete the line, restart. The change reaches the pod via SSH stdin (keys never touch git, never appear in `ps`).
 
-`VOXTRAL_LITELLM_MASTER_KEY` is admin-only with `custom_auth` on: it accesses `/key/*` and `/metrics` but **not** `/v1/audio/speech`. Leaking it lets nobody synthesize audio.
+`VOICE_FACTORY_LITELLM_MASTER_KEY` is admin-only with `custom_auth` on: it accesses `/key/*` and `/metrics` but **not** `/v1/audio/speech`. Leaking it lets nobody synthesize audio.
 
 ```bash
 python3 -c 'import secrets; print("sk-voxtral-owner-" + secrets.token_urlsafe(24))'
@@ -340,13 +340,13 @@ python3 -c 'import secrets; print("sk-voxtral-owner-" + secrets.token_urlsafe(24
 ## Operating notes
 
 - **`--omni`** is mandatory on `vllm serve`. Without it, `/v1/audio/speech` returns 404.
-- **Per-stage GPU caps come from YAML, not the CLI.** vLLM-Omni overrides `--gpu-memory-utilization` with hardcoded values in `vllm_omni/model_executor/stage_configs/*.yaml`. Three 2-stage models on one GPU OOM under upstream defaults (Voxtral 0.8, Qwen 0.3 each). `install_voxtral.sh` `sed`s them down to **Voxtral 0.20/0.05** and **Qwen 0.10/0.10** (qwen3_tts.yaml is shared by both Qwen variants). Re-run `install_voxtral.sh` if you ever pip-reinstall vllm-omni — YAMLs revert to upstream defaults.
+- **Per-stage GPU caps come from YAML, not the CLI.** vLLM-Omni overrides `--gpu-memory-utilization` with hardcoded values in `vllm_omni/model_executor/stage_configs/*.yaml`. Three 2-stage models on one GPU OOM under upstream defaults (Voxtral 0.8, Qwen 0.3 each). `install_voice_factory.sh` `sed`s them down to **Voxtral 0.20/0.05** and **Qwen 0.10/0.10** (qwen3_tts.yaml is shared by both Qwen variants). Re-run `install_voice_factory.sh` if you ever pip-reinstall vllm-omni — YAMLs revert to upstream defaults.
 - **Sequential boot.** The three vLLM instances are launched one after the other in `start_services.sh`. Parallel boot OOMs during CUDA-graph capture.
 - **`--allowed-local-media-path`** is required on Qwen-Base for `file://` `ref_audio` to work. The recipe sets it to `/workspace/qwen_voices`.
 - **LiteLLM strips non-OpenAI fields** (`task_type`, `ref_audio`, `ref_text`, `language`) before forwarding `aspeech()` upstream. That's why `qwen-clone` routes through `qwen_clone_proxy.py` (an OpenAI-shaped proxy that expands `voice: "<id>"` into the cloning fields) instead of straight at vLLM.
 - **Reference audio ≤ 25 s.** Qwen-Base hard-rejects > 30 s; the recipe trims with ffmpeg on upload.
 - **Cold start is dominated by stage-1 init.** `start_services.sh` polls each `/health` for 15 minutes — intentional.
-- **Secrets**: `.voxtral.env` is git-ignored and chmod 600. `HF_TOKEN` is also pushed into the pod's container env at creation time; install scripts source it from `/proc/1/environ` because RunPod doesn't expose pod env in interactive SSH shells.
+- **Secrets**: `.voice-factory.env` is git-ignored and chmod 600. `HF_TOKEN` is also pushed into the pod's container env at creation time; install scripts source it from `/proc/1/environ` because RunPod doesn't expose pod env in interactive SSH shells.
 
 ## Versions (exact, known-good)
 
@@ -370,7 +370,7 @@ Apt: `python3.10-venv python3.10-dev build-essential ffmpeg libsndfile1`. The `-
 
 | Symptom | Root cause | Fix |
 |---|---|---|
-| `Free memory on device cuda:0 (X/Y GiB) on startup is less than desired GPU memory utilization` | YAML caps too generous after a vllm-omni reinstall, or starting a 4th model | Re-run `install_voxtral.sh` (re-applies caps), or drop one model |
+| `Free memory on device cuda:0 (X/Y GiB) on startup is less than desired GPU memory utilization` | YAML caps too generous after a vllm-omni reinstall, or starting a 4th model | Re-run `install_voice_factory.sh` (re-applies caps), or drop one model |
 | `Failed to move speech tokenizer to cuda:0: CUDA out of memory` | Cloning loads a speech tokenizer on first `qwen-clone` request; not enough free VRAM | Same as above. Pod likely has zombie processes from previous runs holding GPU; `pkill -9 -f vllm; sleep 5; ./start_services.sh` |
 | `Reference audio too long (XX.Xs). Maximum 30s supported` | Qwen-Base rejects long ref_audio | Trim to ≤25 s with ffmpeg (recipe does this on upload) |
 | `Cannot load local files without --allowed-local-media-path` | Qwen-Base default-rejects `file://` URLs | `start_services.sh` passes `--allowed-local-media-path /workspace/qwen_voices` |
@@ -382,17 +382,17 @@ Apt: `python3.10-venv python3.10-dev build-essential ffmpeg libsndfile1`. The `-
 | `ImportError: huggingface-hub>=0.34.0,<1.0 is required …` | Mismatch between transformers 4.57 and huggingface_hub 1.x | Pin `huggingface_hub[cli]<1.0` (already done) |
 | `ModuleNotFoundError: No module named 'vllm.inputs.data'` | vllm 0.20 with vllm-omni 0.18 | Pin `vllm==0.18.1` |
 | `ImportError: undefined symbol _ZN3c1013MessageLogger…` | torch 2.11 with vllm 0.18 ABI mismatch | Pin `torch==2.10.0` |
-| `vllm: error: unrecognized arguments: --omni` | A later `pip install vllm` overwrote the vllm-omni entrypoint | `install_voxtral.sh` rewrites `<venv>/bin/vllm` after install |
+| `vllm: error: unrecognized arguments: --omni` | A later `pip install vllm` overwrote the vllm-omni entrypoint | `install_voice_factory.sh` rewrites `<venv>/bin/vllm` after install |
 | `flashinfer-cubin version (X.X) does not match flashinfer version (Y.Y)` | Mismatch between python and cubin packages | Pin both to the same version |
 | `InductorError: … Python.h: No such file or directory` | Triton's gcc-based JIT can't find Python headers | `apt install python3.10-dev build-essential` |
 | `vLLM did NOT become healthy` after 15 min | Stage-1 (audio decoder) genuinely failed | `tail /workspace/logs/vllm-{voxtral,qwen,qwen-clone}.log` for the actual error |
-| LiteLLM 401 `invalid api key` | Bearer not in `VOXTRAL_KEY_*` allowlist | Use `$VOXTRAL_KEY_OWNER`; the master key alone won't work on `/v1/audio/speech` |
+| LiteLLM 401 `invalid api key` | Bearer not in `VOICE_FACTORY_KEY_*` allowlist | Use `$VOICE_FACTORY_KEY_OWNER`; the master key alone won't work on `/v1/audio/speech` |
 | Audio file is 0 bytes / no RIFF | Bad voice name | Pick from the relevant table |
 | HTTP 403 + `error code: 1010` from public proxy URL | Cloudflare in front of `*.proxy.runpod.net` rejects `Python-urllib/*` UA | Set any non-default `User-Agent` |
 
 ## Credits
 
-- **[Mistral AI](https://mistral.ai/news/voxtral-tts)** — Voxtral with open weights and 20 voices (CC BY-NC).
+- **[Mistral AI](https://mistral.ai/news/voice-factory)** — Voxtral with open weights and 20 voices (CC BY-NC).
 - **[Alibaba Qwen team](https://github.com/QwenLM/Qwen3-TTS)** — Qwen3-TTS family under Apache 2.0, including the Base variant that makes self-hosted commercial cloning possible.
 - **[vLLM-Omni](https://github.com/vllm-project/vllm-omni)** — Han Gao, Hongsheng Liu, Roger Wang, Yueqian Lin — for the audio-capable vLLM fork that makes `/v1/audio/speech` possible for both Voxtral and Qwen.
 - **[BerriAI/LiteLLM](https://github.com/BerriAI/LiteLLM)** — OpenAI-shaped proxy with a usable `custom_auth`.
@@ -401,6 +401,6 @@ Apt: `python3.10-venv python3.10-dev build-essential ffmpeg libsndfile1`. The `-
 ## License
 
 - Scripts in this repository: **MIT** (see [LICENSE](LICENSE)).
-- **Voxtral-4B-TTS-2603** (the `voxtral-tts` model) is **CC BY-NC 4.0** by Mistral AI. **Non-commercial only.** Same for the 20 voice presets.
+- **Voxtral-4B-TTS-2603** (the `voice-factory` model) is **CC BY-NC 4.0** by Mistral AI. **Non-commercial only.** Same for the 20 voice presets.
 - **Qwen3-TTS-12Hz-1.7B-CustomVoice** (`qwen-tts`) and **Qwen3-TTS-12Hz-1.7B-Base** (`qwen-clone`) are **Apache 2.0** by Alibaba Cloud. Commercial use is allowed.
 - For voice cloning under `qwen-clone`: the **cloned audio inherits whatever rights you have on the source samples**. If your reference is an ElevenLabs export, check ElevenLabs' T&Cs on commercial use of synthesized output. If your reference is your own voice, you're fine.

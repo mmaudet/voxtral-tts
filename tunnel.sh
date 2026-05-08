@@ -28,8 +28,8 @@ fi
 if [ -n "${1:-}" ] && [ -n "${2:-}" ]; then
   IP="$1"; SSHP="$2"
 elif [ -f runpod-pod-info.json ]; then
-  IP=$(python3 -c 'import json; print(json.load(open("runpod-pod-info.json"))["voxtral-main"]["publicIp"])')
-  SSHP=$(python3 -c 'import json; print(json.load(open("runpod-pod-info.json"))["voxtral-main"]["sshPort"])')
+  IP=$(python3 -c 'import json; print(json.load(open("runpod-pod-info.json"))["voice-factory-main"]["publicIp"])')
+  SSHP=$(python3 -c 'import json; print(json.load(open("runpod-pod-info.json"))["voice-factory-main"]["sshPort"])')
 else
   echo "✗ usage: $0 [<ip> <ssh_port>] | $0 --close"
   echo "  (or have runpod-pod-info.json with publicIp + sshPort)"

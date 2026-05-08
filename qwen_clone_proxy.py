@@ -37,7 +37,7 @@ from threading import Lock
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel, Field
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -279,6 +279,109 @@ def speech_with_alignment(req: SpeechReq):
         "synth_ms": synth_ms,
         "align_ms": align_ms,
     }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# /v1/audio/transcriptions — generic STT via faster-whisper (admin moderation)
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# OpenAI-compatible endpoint, accepts multipart/form-data with `file` (audio
+# binary) and optional `language`, `response_format`, `timestamp_granularities`.
+# Reuses the same _whisper_model() loaded by /v1/audio/speech-with-alignment,
+# so no extra VRAM cost when both endpoints coexist on the pod.
+#
+# Use case: admin UI moderation of user-recorded memo audios (murmure-mobile
+# uploads → murmure-api → SSH tunnel to pod :8005 → this endpoint).
+#
+# response_format options:
+#   "json"          → {"text": "<full transcript>"}                     (default)
+#   "text"          → "<full transcript>"                               (text/plain)
+#   "verbose_json"  → {task, language, duration, text, segments[{id,start,end,text,words?}]}
+#
+# timestamp_granularities (CSV): "word" | "segment" | "word,segment"
+#   - present "word" → segments[].words[] populated with word-level timing
+#   - present "segment" → segments[] populated (always populated for verbose_json)
+
+@app.post("/v1/audio/transcriptions")
+async def transcribe(
+    file: UploadFile = File(...),
+    # OpenAI's API takes `model` but we ignore it — the proxy serves a single
+    # whisper model loaded from WHISPER_MODEL env. Kept for API compatibility.
+    model: str = Form("whisper-1"),
+    language: str | None = Form(None),
+    response_format: str = Form("json"),
+    timestamp_granularities: str | None = Form(None),
+    prompt: str | None = Form(None),
+    temperature: float = Form(0.0),
+):
+    # OpenAI rejects unknown response_format; mirror that strictness.
+    if response_format not in ("json", "text", "verbose_json"):
+        raise HTTPException(400, f"Unsupported response_format '{response_format}'. Use json|text|verbose_json.")
+
+    audio_bytes = await file.read()
+    if not audio_bytes:
+        raise HTTPException(400, "Empty audio file.")
+
+    want_word_ts = bool(timestamp_granularities and "word" in timestamp_granularities)
+
+    log.info("→ transcribe filename=%s bytes=%d lang=%s fmt=%s words_ts=%s",
+             file.filename, len(audio_bytes), language, response_format, want_word_ts)
+
+    t0 = time.time()
+    try:
+        m = _whisper_model()
+        segments_iter, info = m.transcribe(
+            io.BytesIO(audio_bytes),
+            language=language,
+            word_timestamps=want_word_ts,
+            condition_on_previous_text=False,
+            vad_filter=False,
+            initial_prompt=prompt,
+            temperature=temperature,
+        )
+    except Exception as e:
+        log.exception("whisper transcribe failed")
+        raise HTTPException(500, f"transcribe error: {e!s}")
+
+    # Materialize the iterator now (it's lazy).
+    segments_out: list[dict[str, Any]] = []
+    text_parts: list[str] = []
+    for seg in segments_iter:
+        text_parts.append(seg.text)
+        seg_dict: dict[str, Any] = {
+            "id": int(getattr(seg, "id", 0)),
+            "start": float(seg.start),
+            "end": float(seg.end),
+            "text": seg.text,
+        }
+        if want_word_ts and getattr(seg, "words", None):
+            seg_dict["words"] = [
+                {
+                    "word": w.word,
+                    "start": float(w.start),
+                    "end": float(w.end),
+                }
+                for w in seg.words
+            ]
+        segments_out.append(seg_dict)
+
+    text = "".join(text_parts).strip()
+    elapsed_ms = int((time.time() - t0) * 1000)
+    log.info("← transcribe %d chars / %d segments in %dms",
+             len(text), len(segments_out), elapsed_ms)
+
+    if response_format == "text":
+        return Response(content=text, media_type="text/plain")
+    if response_format == "verbose_json":
+        return {
+            "task": "transcribe",
+            "language": info.language,
+            "duration": float(info.duration),
+            "text": text,
+            "segments": segments_out,
+        }
+    # Default: json
+    return {"text": text}
 
 
 # ──────────────────────────────────────────────────────────────────────────────

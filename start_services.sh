@@ -4,7 +4,7 @@
 # below as commented-out blocks; uncomment to re-enable.
 #
 # With a single Qwen-Base instance the YAML (qwen3_tts_batch.yaml installed
-# by install_voxtral.sh) configures Stage 0 max_num_seqs=4, async_scheduling,
+# by install_voice_factory.sh) configures Stage 0 max_num_seqs=4, async_scheduling,
 # CUDA graphs, gpu_memory_utilization 0.30/0.20 — ~3× the throughput of the
 # stock single-stream config. Pair with concurrency=4 client-side and an SSH
 # tunnel to bypass Cloudflare's 100s ceiling on /v1/audio/speech.
@@ -22,7 +22,7 @@ if [ -r /proc/1/environ ]; then
 fi
 
 # shellcheck disable=SC1091
-source /workspace/voxtral-env/bin/activate
+source /workspace/voice-factory-env/bin/activate
 
 # ── helper ────────────────────────────────────────────────────────────────────
 start_vllm() {
@@ -96,7 +96,7 @@ if [ -f /workspace/qwen_clone_proxy.py ]; then
   else
     echo "Starting qwen_clone_proxy..."
     nohup bash -c '
-      source /workspace/voxtral-env/bin/activate
+      source /workspace/voice-factory-env/bin/activate
       exec python /workspace/qwen_clone_proxy.py
     ' > /workspace/logs/qwen-clone-proxy.log 2>&1 &
     echo "  qwen_clone_proxy PID: $!"
@@ -140,7 +140,7 @@ done
 
 echo "=== SERVICES READY ==="
 echo "  qwen-clone  → http://localhost:8004/v1 (loopback) via :8005 proxy"
-echo "  LiteLLM     → http://localhost:4000/v1/audio/speech (Bearer \$VOXTRAL_KEY_*)"
+echo "  LiteLLM     → http://localhost:4000/v1/audio/speech (Bearer \$VOICE_FACTORY_KEY_*)"
 echo
 echo "Long audios (30-45 s) exceed Cloudflare's 100s timeout on the public"
 echo "*.proxy.runpod.net URL. For batch generation, use ./tunnel.sh on your"

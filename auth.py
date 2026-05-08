@@ -8,10 +8,10 @@ it's listed in our env-var-driven allowlist; otherwise we 401.
 
 Required env vars (set on the pod by `start_services.sh` from a side file
 that's gitignored):
-    VOXTRAL_KEY_OWNER       - the operator's personal key
-    VOXTRAL_KEY_COLLEAGUE   - the colleague's key (revocable independently)
+    VOICE_FACTORY_KEY_OWNER       - the operator's personal key
+    VOICE_FACTORY_KEY_COLLEAGUE   - the colleague's key (revocable independently)
 
-Optional env vars: any number of `VOXTRAL_KEY_<NAME>` are picked up.
+Optional env vars: any number of `VOICE_FACTORY_KEY_<NAME>` are picked up.
 """
 
 import os
@@ -23,8 +23,8 @@ def _load_keys() -> dict[str, str]:
     """Return {api_key: user_id} mapping built from env."""
     keys: dict[str, str] = {}
     for env_name, value in os.environ.items():
-        if env_name.startswith("VOXTRAL_KEY_") and value.strip():
-            user_id = env_name[len("VOXTRAL_KEY_"):].lower()
+        if env_name.startswith("VOICE_FACTORY_KEY_") and value.strip():
+            user_id = env_name[len("VOICE_FACTORY_KEY_"):].lower()
             keys[value.strip()] = user_id
     return keys
 

@@ -1,7 +1,7 @@
 {
-  "voxtral-main": {
+  "voice-factory-main": {
     "podId": "<assigned-on-create>",
-    "name": "voxtral-main",
+    "name": "voice-factory-main",
     "gpuTypeId": "NVIDIA RTX A5000",
     "gpuCount": 1,
     "imageName": "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04",

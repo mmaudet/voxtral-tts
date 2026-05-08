@@ -17,7 +17,7 @@ if [ -r /proc/1/environ ]; then
 fi
 
 # shellcheck disable=SC1091
-source /workspace/voxtral-env/bin/activate
+source /workspace/voice-factory-env/bin/activate
 
 mkdir -p /workspace/models
 

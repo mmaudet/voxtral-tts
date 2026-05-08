@@ -37,11 +37,11 @@ dpkg -l python3.10-dev build-essential ffmpeg libsndfile1 >/dev/null 2>&1 || {
 }
 
 echo "=== [2/8] venv ==="
-if [ ! -d /workspace/voxtral-env ]; then
-  python3.10 -m venv /workspace/voxtral-env
+if [ ! -d /workspace/voice-factory-env ]; then
+  python3.10 -m venv /workspace/voice-factory-env
 fi
 # shellcheck disable=SC1091
-source /workspace/voxtral-env/bin/activate
+source /workspace/voice-factory-env/bin/activate
 python -V
 
 echo "=== [3/8] pip + uv ==="
@@ -67,14 +67,14 @@ uv pip install \
 # vllm-omni hijacks <venv>/bin/vllm to add its --omni CLI flag, but if uv
 # resolves vllm AFTER vllm-omni in any subsequent install, it overwrites the
 # entrypoint. Rewriting it explicitly is idempotent and survives later pip ops.
-cat > /workspace/voxtral-env/bin/vllm <<'PY'
-#!/workspace/voxtral-env/bin/python3
+cat > /workspace/voice-factory-env/bin/vllm <<'PY'
+#!/workspace/voice-factory-env/bin/python3
 import sys
 from vllm_omni.entrypoints.cli.main import main
 if __name__ == "__main__":
     sys.exit(main() or 0)
 PY
-chmod +x /workspace/voxtral-env/bin/vllm
+chmod +x /workspace/voice-factory-env/bin/vllm
 
 echo "=== [5/8] verify mistral_common >= 1.10 ==="
 python -c "import mistral_common; v=mistral_common.__version__; print('mistral_common:', v); assert tuple(map(int, v.split('.')[:2])) >= (1,10), 'too old'"
@@ -117,7 +117,7 @@ PY
 # alongside Qwen — the original conservative caps avoid OOM in that 2-model
 # mode. The 3-model mode (with Qwen-CV) is no longer the recommended config.
 echo "=== [9/8] swap vllm-omni qwen3_tts.yaml for the batch variant ==="
-YAML_DIR=/workspace/voxtral-env/lib/python3.10/site-packages/vllm_omni/model_executor/stage_configs
+YAML_DIR=/workspace/voice-factory-env/lib/python3.10/site-packages/vllm_omni/model_executor/stage_configs
 if [ -f "$YAML_DIR/qwen3_tts_batch.yaml" ]; then
   cp -n "$YAML_DIR/qwen3_tts.yaml" "$YAML_DIR/qwen3_tts.yaml.orig"
   cp "$YAML_DIR/qwen3_tts_batch.yaml" "$YAML_DIR/qwen3_tts.yaml"
@@ -131,12 +131,14 @@ fi
 echo "Qwen caps (now from qwen3_tts_batch.yaml):"; grep -E 'gpu_memory_utilization|max_num_seqs|enforce_eager' "$YAML_DIR/qwen3_tts.yaml" 2>/dev/null
 echo "Voxtral caps:"; grep gpu_memory_utilization "$YAML_DIR/voxtral_tts.yaml" 2>/dev/null
 
-# Faster-whisper for word-level alignment post-process. Used by the
-# /v1/audio/speech-with-alignment endpoint in qwen_clone_proxy.py.
+# Faster-whisper for word-level alignment post-process AND admin STT.
+# Used by qwen_clone_proxy.py for /v1/audio/speech-with-alignment (TTS+align)
+# AND /v1/audio/transcriptions (generic STT for moderation).
 # ~2.6 GB VRAM at fp16, fits comfortably alongside Qwen3-TTS-Base on a 48 GB card.
+# python-multipart is needed by FastAPI for UploadFile (multipart/form-data).
 if [ "${INSTALL_WHISPER:-1}" = "1" ]; then
-  echo "=== faster-whisper for alignment ==="
-  pip install --quiet faster-whisper==1.2.0
+  echo "=== faster-whisper + multipart for alignment & STT ==="
+  pip install --quiet faster-whisper==1.2.0 python-multipart>=0.0.20
   python -c "
 from faster_whisper import WhisperModel
 WhisperModel('large-v3', device='cuda', compute_type='float16',

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Restart a stopped voxtral-tts pod end-to-end:
+# Restart a stopped voice-factory pod end-to-end:
 #   1. POST /v1/pods/<id>/start
 #   2. poll until pod is RUNNING with publicIp + ssh port assigned
 #   3. wait for sshd to accept connections
@@ -8,28 +8,28 @@
 #   6. print the public proxy URLs
 #
 # Usage:
-#   ./restart-pod.sh                 # uses runpod-pod-info.json[voxtral-main]
+#   ./restart-pod.sh                 # uses runpod-pod-info.json[voice-factory-main]
 #   ./restart-pod.sh <pod-id>        # explicit pod id
 #
 # Requires:
-#   .voxtral.env with RUNPOD_API_KEY
+#   .voice-factory.env with RUNPOD_API_KEY
 #   ~/.ssh/id_ed25519  (the key that was injected at pod creation time)
 
 set -euo pipefail
 cd "$(dirname "$0")"
 
 # ---------------- 1. secrets + pod id ----------------
-if [ ! -f .voxtral.env ]; then
-  echo "✗ .voxtral.env not found — copy from .voxtral.env.example, fill, chmod 600" >&2
+if [ ! -f .voice-factory.env ]; then
+  echo "✗ .voice-factory.env not found — copy from .voice-factory.env.example, fill, chmod 600" >&2
   exit 1
 fi
 # shellcheck disable=SC1091
-source .voxtral.env
+source .voice-factory.env
 
 if [ -n "${1:-}" ]; then
   POD_ID="$1"
 elif [ -f runpod-pod-info.json ]; then
-  POD_ID=$(python3 -c 'import json,sys; d=json.load(open("runpod-pod-info.json")); print(d["voxtral-main"]["podId"])')
+  POD_ID=$(python3 -c 'import json,sys; d=json.load(open("runpod-pod-info.json")); print(d["voice-factory-main"]["podId"])')
 else
   echo "✗ no pod id — pass one as arg, or have runpod-pod-info.json present" >&2
   exit 1
@@ -97,16 +97,16 @@ scp -P "$SSHP" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
 ssh "${SSH_OPTS[@]}" "root@$IP" 'chmod +x /workspace/start_services.sh'
 
 # Push LiteLLM virtual keys via stdin (never in argv). Keys are read from the
-# local .voxtral.env which is sourced at the top of this script.
-if [ -n "${VOXTRAL_KEY_OWNER:-}" ] && [ -n "${VOXTRAL_LITELLM_MASTER_KEY:-}" ]; then
+# local .voice-factory.env which is sourced at the top of this script.
+if [ -n "${VOICE_FACTORY_KEY_OWNER:-}" ] && [ -n "${VOICE_FACTORY_LITELLM_MASTER_KEY:-}" ]; then
   echo "→ syncing /workspace/.litellm.env (custom_auth keys)..."
   ssh "${SSH_OPTS[@]}" "root@$IP" 'umask 077; cat > /workspace/.litellm.env && chmod 600 /workspace/.litellm.env' <<EOF
-export VOXTRAL_KEY_OWNER=$VOXTRAL_KEY_OWNER
-export VOXTRAL_KEY_COLLEAGUE=${VOXTRAL_KEY_COLLEAGUE:-}
-export VOXTRAL_LITELLM_MASTER_KEY=$VOXTRAL_LITELLM_MASTER_KEY
+export VOICE_FACTORY_KEY_OWNER=$VOICE_FACTORY_KEY_OWNER
+export VOICE_FACTORY_KEY_COLLEAGUE=${VOICE_FACTORY_KEY_COLLEAGUE:-}
+export VOICE_FACTORY_LITELLM_MASTER_KEY=$VOICE_FACTORY_LITELLM_MASTER_KEY
 EOF
 else
-  echo "WARN: VOXTRAL_KEY_OWNER/MASTER not set in .voxtral.env — LiteLLM will start with no virtual keys"
+  echo "WARN: VOICE_FACTORY_KEY_OWNER/MASTER not set in .voice-factory.env — LiteLLM will start with no virtual keys"
 fi
 
 # ---------------- 6. launch services (foreground, blocks ~4-5 min) ----------------

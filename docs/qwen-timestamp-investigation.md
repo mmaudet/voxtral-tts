@@ -30,8 +30,8 @@ faster-whisper est rapide sur GPU, et l'overhead réel mesuré est faible.
 ### Setup
 
 ```bash
-# Sur le pod, après install_voxtral.sh :
-. /workspace/voxtral-env/bin/activate
+# Sur le pod, après install_voice_factory.sh :
+. /workspace/voice-factory-env/bin/activate
 pip install faster-whisper==1.2.0
 python -c "
 from faster_whisper import WhisperModel
